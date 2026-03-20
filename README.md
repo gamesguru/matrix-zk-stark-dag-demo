@@ -32,6 +32,15 @@ This crate is split into two primary components:
 - `src/circuit/`: The heavy Prover logic. This contains the Halo2 circuits required to mathematically constrain Matrix's State Resolution v2 algorithm. (Yes, this means we are sorting SHA-256 hashes inside a finite-field arithmetic circuit. Send help).
 - `src/verifier/`: The lightweight Verifier logic. This is the code that standard, low-resource homeservers will actually run to check the Sequencer's work.
 
+## Language Considerations and Overhead
+
+Implementing complex cryptographic operations, such as Zero-Knowledge recursive STARK proving and State Resolution v2, introduces significant computational overhead. While this repository is written in Rust for optimal performance and safety, it's important to consider the implications of portability to other languages:
+
+- **Python & JavaScript/TypeScript:** These languages are ubiquitous but notoriously slow for heavy, repeated mathematical iterations (like finite-field arithmetic and hash-sorting constraints). Implementing the Prover in interpreted or JIT-compiled languages would lead to unacceptable latency for real-time communication. Native implementations of State Resolution v2 in Python (e.g., Synapse) already face performance bottlenecks; adding ZK constraints natively would geometrically compound this issue.
+- **The Optimistic Path:** Fortunately, there is a clear path forward for both ecosystems:
+  - **Python Servers:** Homeservers like Synapse can easily be salvaged by leveraging native C/Rust extensions (like PyO3), offloading only the heavy cryptography to this compiled core while keeping their higher-level networking logic untouched in Python.
+  - **JavaScript Clients:** The Matrix SDK primarily functions as a client, so it only ever needs to run the lightweight Verifier. While running verification in _pure_ JS/TS would be too slow (due to a lack of native big-integer acceleration), compiling the verification logic to WebAssembly completely solves this. This allows standard browser clients to verify a ZK proof incredibly fast directly in the browser using Wasm bindings.
+
 ## Status
 
 Highly experimental. We are currently mapping the rules of Matrix DAG resolution to Plonkish arithmetization. If you are a cryptographer who enjoys inflicting pain upon yourself with accumulation schemes and hash-sorting constraints, PRs are welcome.
