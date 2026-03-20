@@ -1,7 +1,11 @@
 [package]
-name = "zk-matrix-join-host"
+name = "zk-matrix-join-server"
 version = "0.1.0"
 edition = "2021"
+
+[[bin]]
+name = "zk-matrix-join-server"
+path = "main.rs"
 
 [dependencies]
 sp1-sdk = "3.0.0"

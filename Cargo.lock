@@ -7094,7 +7094,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "zk-matrix-join-guest"
+name = "zk-matrix-join-client"
 version = "0.1.0"
 dependencies = [
  "ruma-common",
@@ -7107,7 +7107,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "zk-matrix-join-host"
+name = "zk-matrix-join-server"
 version = "0.1.0"
 dependencies = [
  "serde",

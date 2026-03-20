@@ -32,12 +32,12 @@ build: ##H Build the Rust project
 .PHONY: run
 run: ##H Run the ZK-Matrix-Join Demo
 	@echo "Running ZK-Matrix-Join Demo..."
-	$(CARGO) run --bin zk-matrix-join-host
+	$(CARGO) run --bin zk-matrix-join-server
 
 .PHONY: test
 test: ##H Run the ZK Circuit Tests
 	@echo "Running ZK Circuit Tests..."
-	$(CARGO) test -p zk-matrix-join-host
+	$(CARGO) test -p zk-matrix-join-server
 
 .PHONY: fetch
 fetch: ##H Fetch real Matrix data (uses .env file for configuration)

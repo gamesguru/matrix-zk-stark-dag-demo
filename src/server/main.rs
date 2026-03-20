@@ -3,8 +3,7 @@ use sp1_sdk::{ProverClient, SP1Stdin};
 
 // The path to the compiled RISC-V ELF file for the guest program.
 // When using `sp1-build`, it generates this constant.
-pub const ZK_MATRIX_GUEST_ELF: &[u8] =
-    include_bytes!("../../guest/elf/riscv32im-succinct-zkvm-elf");
+pub const ZK_MATRIX_GUEST_ELF: &[u8] = include_bytes!("../client/elf/riscv32im-succinct-zkvm-elf");
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct MinimalStateEvent {

@@ -1,7 +1,11 @@
 [package]
-name = "zk-matrix-join-guest"
+name = "zk-matrix-join-client"
 version = "0.1.0"
 edition = "2021"
+
+[[bin]]
+name = "zk-matrix-join-client"
+path = "main.rs"
 
 [dependencies]
 sp1-zkvm = "3.0.0"
