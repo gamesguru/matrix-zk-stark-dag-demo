@@ -8,9 +8,9 @@ name = "zk-matrix-join-host"
 path = "main.rs"
 
 [dependencies]
-sp1-sdk = "3.0.0"
+sp1-sdk = "6.0.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 [build-dependencies]
-sp1-build = "3.0.0"
+sp1-build = "6.0.2"

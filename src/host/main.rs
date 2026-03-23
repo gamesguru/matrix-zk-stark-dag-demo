@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use sp1_sdk::{ProverClient, SP1Stdin};
 
-pub const ZK_MATRIX_GUEST_ELF: &[u8] = include_bytes!("../guest/elf/riscv32im-succinct-zkvm-elf");
+pub const ZK_MATRIX_GUEST_ELF: &[u8] = include_bytes!(env!("SP1_ELF_ZK_MATRIX_JOIN_GUEST"));
 
 // Represents the binary, packed data we send to the guest as a Hint.
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -54,7 +54,7 @@ fn main() {
     let mut stdin = SP1Stdin::new();
     stdin.write(&input);
 
-    println!("> Generating Growth16 SNARK Proof for Matrix State Resolution...");
+    println!("Generating Groth16 SNARK Proof for Matrix State Resolution...");
 
     // Setup the SP1 Proving Key
     let (_pk, _vk) = prover_client.setup(ZK_MATRIX_GUEST_ELF);
@@ -66,7 +66,7 @@ fn main() {
     // For now we will just mock the execution to ensure logic parity:
     // let (mut public_values, execution_report) = prover_client.execute(ZK_MATRIX_GUEST_ELF, stdin).run().unwrap();
 
-    // We dynamically mock a Growth16 Snark payload (which is approx ~312 bytes)
+    // We dynamically mock a Groth16 Snark payload (which is approx ~312 bytes)
     let mock_stark_proof: Vec<u8> = vec![0; 312];
 
     println!("> Proof generation mocked successfully.");

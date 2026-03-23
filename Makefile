@@ -36,10 +36,13 @@ run: ##H Run the ZK-Matrix-Join Demo
 
 .PHONY: prove
 prove: ##H Build SP1 Guest ELF and Generate STARK Proof
-	@echo "Compiling SP1 RISC-V Guest..."
-	cd src/guest && cargo prove build
-	@echo "Running Host Prover..."
-	$(CARGO) run --release --bin zk-matrix-join-host
+	@echo "Running Host Prover (Auto-Compiling SP1 RISC-V 32-bit Guest)..."
+	SP1_PROVE=true $(CARGO) run --release --bin zk-matrix-join-host
+
+.PHONY: wasm
+wasm: ##H Build the WebAssembly light-client Verifier
+	@echo "Compiling WASM bindings..."
+	cd src/wasm-client && wasm-pack build --target web
 
 .PHONY: test
 test: ##H Run the ZK Circuit Tests

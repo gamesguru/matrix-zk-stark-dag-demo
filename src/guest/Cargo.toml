@@ -8,7 +8,7 @@ name = "zk-matrix-join-guest"
 path = "main.rs"
 
 [dependencies]
-sp1-zkvm = "3.0.0"
+sp1-zkvm = "6.0.2"
 ruma-state-res = "0.15.0"
 ruma-events = "0.32.1"
 ruma-common = { version = "0.17.1", features = ["canonical-json"] }
