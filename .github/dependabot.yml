@@ -1,0 +1,9 @@
+version: 2
+updates:
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "lru"
+        versions: ["< 0.16.3"]
