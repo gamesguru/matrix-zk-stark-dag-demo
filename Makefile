@@ -34,6 +34,13 @@ run: ##H Run the ZK-Matrix-Join Demo
 	@echo "Running ZK-Matrix-Join Demo..."
 	$(CARGO) run --bin zk-matrix-join-host
 
+.PHONY: prove
+prove: ##H Build SP1 Guest ELF and Generate STARK Proof
+	@echo "Compiling SP1 RISC-V Guest..."
+	cd src/guest && cargo prove build
+	@echo "Running Host Prover..."
+	$(CARGO) run --release --bin zk-matrix-join-host
+
 .PHONY: test
 test: ##H Run the ZK Circuit Tests
 	@echo "Running ZK Circuit Tests..."
@@ -74,9 +81,12 @@ lint: ##H Run clippy to lint the codebase and check compilation
 	$(CARGO) clippy --all-targets --all-features -- -D warnings
 
 .PHONY: clean
-clean: ##H Clean the Rust build artifacts
+clean: ##H Clean up cache and optionally build artifacts
 	@echo "Cleaning up..."
-	$(CARGO) clean
+	find . -name .mypy_cache -exec rm -rf {} +;
+	find . -name .ruff_cache -exec rm -rf {} +;
+	find . -name .pytest_cache -exec rm -rf {} +;
+# 	$(CARGO) clean
 
 
 # Messes up vim/sublime syntax highlighting, so it's at the end!
