@@ -22,8 +22,11 @@ jobs:
         with:
           components: rustfmt, clippy
 
-      - name: Setup SP1
-        uses: succinctlabs/setup-sp1@v1
+      - name: Setup SP1 Toolchain
+        run: |
+          curl -L https://sp1up.succinct.xyz | bash
+          ~/.sp1/bin/sp1up
+          echo "$HOME/.sp1/bin" >> $GITHUB_PATH
 
       - name: Install Protoc
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
