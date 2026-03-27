@@ -22,7 +22,7 @@ STYLE_RESET := \033[0m
 .DEFAULT_GOAL := help
 
 .PHONY: all
-all: build test ##H Build the project and run tests
+all: build setup check test ##H Build, setup data, check code quality, and run tests
 
 .PHONY: build
 build: ##H Build the Rust project
@@ -54,22 +54,19 @@ web-demo: ##H Run a local web server to test the WASM UI
 	python3 -m http.server 8080
 
 .PHONY: test
-test: ##H Run the ZK Circuit Tests
+test: ##H Run the ZK Circuit Tests (Real verifiable simulation)
 	@echo "Running ZK Circuit Tests..."
-	$(CARGO) test -p zk-matrix-join-host
+	$(CARGO) test -p zk-matrix-join-host -- --nocapture
 
-.PHONY: fetch
-fetch: ##H Fetch real Matrix data (uses .env file for configuration)
-	@if [ -z "$$MATRIX_TOKEN" ]; then \
-		echo "Error: MATRIX_TOKEN is not set."; \
-		echo "Please copy .env.example to .env and add your token."; \
-		exit 1; \
+.PHONY: setup
+setup: ##H Combined: Fetch real Matrix data and Ruma state resolution fixtures
+	@echo "Setting up project data and fixtures..."
+	@if [ -n "$$MATRIX_TOKEN" ]; then \
+		echo "Fetching real Matrix state data from $$MATRIX_HOMESERVER..."; \
+		$(PYTHON) scripts/fetch_matrix_state.py; \
+	else \
+		echo "Skipping real Matrix fetch (MATRIX_TOKEN not set)."; \
 	fi
-	@echo "Fetching real Matrix state data from $$MATRIX_HOMESERVER..."
-	$(PYTHON) scripts/fetch_matrix_state.py
-
-.PHONY: fixtures
-fixtures: ##H Download Ruma state resolution test fixtures
 	@echo "Downloading Ruma State Res test fixtures..."
 	mkdir -p res
 	curl -sL "https://raw.githubusercontent.com/ruma/ruma/main/crates/ruma-state-res/tests/it/fixtures/bootstrap-private-chat.json" -o res/ruma_bootstrap_events.json

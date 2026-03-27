@@ -6405,8 +6405,10 @@ dependencies = [
 name = "zk-matrix-join-host"
 version = "0.1.0"
 dependencies = [
+ "hex",
  "ruma-common",
  "ruma-events",
+ "ruma-state-res",
  "serde",
  "serde_json",
  "sha2",

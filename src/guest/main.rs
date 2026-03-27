@@ -5,12 +5,14 @@ use ruma_common::{
     CanonicalJsonObject, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, RoomVersionId, UserId,
 };
 use ruma_events::TimelineEventType;
-use ruma_state_res::Event;
+use ruma_state_res::{resolve, Event, StateMap};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 extern crate alloc;
+use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
+use std::collections::HashSet;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct GuestEvent {
@@ -80,7 +82,9 @@ impl Event for GuestEvent {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct DAGMergeInput {
     pub room_version: RoomVersionId,
-    pub events: Vec<GuestEvent>,
+    pub state_to_resolve: Vec<StateMap<OwnedEventId>>,
+    pub auth_chains: Vec<HashSet<OwnedEventId>>,
+    pub event_map: BTreeMap<OwnedEventId, GuestEvent>,
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -92,16 +96,42 @@ pub fn main() {
     // Read the input from the Host (the world-state hint containing events)
     let input: DAGMergeInput = sp1_zkvm::io::read();
 
-    // In this iteration, we iterate over the raw events and verify their internal structure.
-    // Full ruma_state_res::resolve invocation will go here once the State Resolution
-    // traits are implemented for the Guest events.
+    println!("cycle-count-start: resolution-initialization");
+
+    // Resolve rules based on room version
+    let rules = input
+        .room_version
+        .rules()
+        .expect("Unsupported room version");
+    let state_res_v2_rules = rules
+        .state_res
+        .v2_rules()
+        .expect("Room version does not use State Res V2");
+
+    println!("cycle-count-start: ruma-state-resolution");
+    println!("> Resolving {} state maps...", input.state_to_resolve.len());
+
+    // ZK-Proven State Resolution: Execute the spec-mandated algorithm!
+    let resolved_state = resolve(
+        &rules.authorization,
+        state_res_v2_rules,
+        &input.state_to_resolve,
+        input.auth_chains,
+        |id| input.event_map.get(id).cloned(),
+        |_| Some(HashSet::new()), // Simplified for demo; real join fetches subgraph if needed
+    )
+    .expect("Ruma State Resolution failed inside the zkVM!");
+
+    println!("cycle-count-end: ruma-state-resolution");
+    println!("cycle-count-start: state-hashing");
+
+    // Journal Commitment: Fingerprint the resolved state
     let mut hasher = Sha256::new();
 
-    for event in input.events {
-        // Simple hash commitment for consistency verification
-        // (This will be replaced by the signature + hash resolution logic)
-        let json_str = serde_json::to_string(&event).expect("Failed to serialize Ruma event!");
-        hasher.update(json_str.as_bytes());
+    for ((event_type, state_key), event_id) in resolved_state {
+        hasher.update(event_type.to_string().as_bytes());
+        hasher.update(state_key.as_bytes());
+        hasher.update(event_id.as_str().as_bytes());
     }
 
     let expected_hash: [u8; 32] = hasher.finalize().into();
@@ -109,6 +139,9 @@ pub fn main() {
     let output = DAGMergeOutput {
         resolved_state_hash: expected_hash,
     };
+
+    println!("cycle-count-end: state-hashing");
+    println!("✓ Guest Resolution Protocol Complete!");
 
     sp1_zkvm::io::commit(&output);
 }

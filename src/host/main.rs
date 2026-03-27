@@ -1,12 +1,17 @@
 use serde::{Deserialize, Serialize};
-use sp1_sdk::blocking::{Prover, ProverClient};
+use sp1_sdk::blocking::{ProveRequest, Prover, ProverClient};
 use sp1_sdk::SP1Stdin;
 
 pub const ZK_MATRIX_GUEST_ELF: &[u8] = include_bytes!(env!("SP1_ELF_zk-matrix-join-guest"));
 
 // Represents the binary, packed data we send to the guest as a Hint.
-use ruma_common::{CanonicalJsonObject, OwnedEventId, OwnedRoomId, OwnedUserId, RoomVersionId};
+use ruma_common::{
+    CanonicalJsonObject, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedUserId,
+    RoomId, RoomVersionId, UserId,
+};
 use ruma_events::TimelineEventType;
+use ruma_state_res::{Event, StateMap};
+use std::collections::{BTreeMap, HashSet};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct GuestEvent {
@@ -23,7 +28,61 @@ pub struct GuestEvent {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct DAGMergeInput {
     pub room_version: RoomVersionId,
-    pub events: Vec<GuestEvent>,
+    pub state_to_resolve: Vec<StateMap<OwnedEventId>>,
+    pub auth_chains: Vec<HashSet<OwnedEventId>>,
+    pub event_map: BTreeMap<OwnedEventId, GuestEvent>,
+}
+
+impl Event for GuestEvent {
+    type Id = OwnedEventId;
+
+    fn event_id(&self) -> &Self::Id {
+        &self.event_id
+    }
+
+    fn room_id(&self) -> Option<&RoomId> {
+        Some(&self.room_id)
+    }
+
+    fn sender(&self) -> &UserId {
+        &self.sender
+    }
+
+    fn origin_server_ts(&self) -> MilliSecondsSinceUnixEpoch {
+        let val = self
+            .event
+            .get("origin_server_ts")
+            .expect("missing origin_server_ts");
+        serde_json::from_value(val.clone().into()).expect("invalid origin_server_ts")
+    }
+
+    fn event_type(&self) -> &TimelineEventType {
+        &self.event_type
+    }
+
+    fn content(&self) -> &serde_json::value::RawValue {
+        &self.content
+    }
+
+    fn state_key(&self) -> Option<&str> {
+        self.event.get("state_key").and_then(|val| val.as_str())
+    }
+
+    fn prev_events(&self) -> Box<dyn DoubleEndedIterator<Item = &Self::Id> + '_> {
+        Box::new(self.prev_events.iter())
+    }
+
+    fn auth_events(&self) -> Box<dyn DoubleEndedIterator<Item = &Self::Id> + '_> {
+        Box::new(self.auth_events.iter())
+    }
+
+    fn redacts(&self) -> Option<&Self::Id> {
+        None
+    }
+
+    fn rejected(&self) -> bool {
+        false
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -96,36 +155,78 @@ fn main() {
         events.len()
     );
 
+    // For the demonstration, we'll put all state events into a single initial state map.
+    // In a real join, we'd have multiple conflicting state sets.
+    let mut state_map = StateMap::new();
+    let mut event_map = BTreeMap::new();
+    let mut auth_chain_set = HashSet::new();
+
+    for guest_ev in events {
+        let key = (
+            guest_ev.event_type.to_string().into(),
+            guest_ev
+                .event
+                .get("state_key")
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .to_string(),
+        );
+        state_map.insert(key, guest_ev.event_id.clone());
+        auth_chain_set.insert(guest_ev.event_id.clone());
+        event_map.insert(guest_ev.event_id.clone(), guest_ev);
+    }
+
     let input = DAGMergeInput {
         room_version: RoomVersionId::V10,
-        events,
+        state_to_resolve: vec![state_map],
+        auth_chains: vec![auth_chain_set],
+        event_map,
     };
+
+    // Setup the SP1 Proving Key
+    // Note: Proof generation is mocked in the demo's main() path for speed,
+    // but the verifiable logic is simulated below.
+    let pk = prover_client
+        .setup(sp1_sdk::Elf::Static(ZK_MATRIX_GUEST_ELF))
+        .unwrap();
 
     let mut stdin = SP1Stdin::new();
     stdin.write(&input);
 
-    println!("Generating Groth16 SNARK Proof for Matrix State Resolution...");
+    if std::env::var("SP1_PROVE").is_ok() {
+        println!("Generating STARK Proof for Matrix State Resolution...");
+        let mut proof = prover_client
+            .prove(&pk, stdin)
+            .run()
+            .expect("SP1 Proving failed!");
 
-    // Setup the SP1 Proving Key
-    let _pk = prover_client
-        .setup(sp1_sdk::Elf::Static(ZK_MATRIX_GUEST_ELF))
-        .unwrap();
+        println!("--------------------------------------------------");
+        println!("✓ STARK Proof Generated Successfully!");
 
-    // In a production environment with a fully configured `succinct` toolchain,
-    // we would actually run the proof generation:
-    // let mut proof = prover_client.prove(&pk, stdin).growth16().run().unwrap();
+        let output: DAGMergeOutput = proof.public_values.read();
+        println!(
+            "Matrix Resolved State Hash (Journal): {:?}",
+            hex::encode(output.resolved_state_hash)
+        );
+    } else {
+        println!("Simulating Verifiable Execution for Matrix State Resolution...");
+        println!("(Note: This is a full RISC-V simulation of the Ruma algorithm)");
 
-    // For now we will just mock the execution to ensure logic parity:
-    // let (mut public_values, execution_report) = prover_client.execute(ZK_MATRIX_GUEST_ELF, stdin).run().unwrap();
+        let (mut public_values, _execution_report) = prover_client
+            .execute(sp1_sdk::Elf::Static(ZK_MATRIX_GUEST_ELF), stdin)
+            .run()
+            .expect("SP1 Execution failed!");
 
-    // We dynamically mock a Groth16 Snark payload (which is approx ~312 bytes)
-    let mock_stark_proof: Vec<u8> = vec![0; 312];
+        let output: DAGMergeOutput = public_values.read();
 
-    println!("> Proof generation mocked successfully.");
-    println!(
-        "> Compressed ZK-SNARK Proof payload size: {} bytes",
-        mock_stark_proof.len()
-    );
+        println!("--------------------------------------------------");
+        println!("✓ Verifiable Simulation Complete!");
+        println!(
+            "Matrix Resolved State Hash (Journal): {:?}",
+            hex::encode(output.resolved_state_hash)
+        );
+    }
 }
 
 /// The testing module validates the verifiable computation Hinting Paradigm.
@@ -137,6 +238,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ruma_state_res::resolve;
 
     /// Simulates a successful state resolution with active Ruma Event types.
     #[test]
@@ -170,7 +272,7 @@ mod tests {
         let guest_event = GuestEvent {
             event,
             content,
-            event_id,
+            event_id: event_id.clone(),
             room_id,
             sender,
             event_type,
@@ -178,15 +280,125 @@ mod tests {
             auth_events,
         };
 
+        let mut state_map = StateMap::new();
+        state_map.insert(
+            ("m.room.member".into(), "@user:example.com".to_string()),
+            event_id.clone(),
+        );
+
+        let mut event_map = BTreeMap::new();
+        event_map.insert(event_id.clone(), guest_event);
+
+        let mut auth_chain_set = HashSet::new();
+        auth_chain_set.insert(event_id);
+
         let input = DAGMergeInput {
             room_version: RoomVersionId::V10,
-            events: vec![guest_event],
+            state_to_resolve: vec![state_map],
+            auth_chains: vec![auth_chain_set],
+            event_map,
         };
 
         let mut stdin = SP1Stdin::new();
         stdin.write(&input);
     }
 
-    // The previous manual power level and sort tests are redacted as they
-    // are now handled internally by Ruma's state resolution logic in the guest.
+    #[test]
+    fn test_state_resolution_parity() {
+        use sha2::{Digest, Sha256};
+
+        let event_id: OwnedEventId = "$1:example.com".to_owned().try_into().unwrap();
+        let room_id: OwnedRoomId = "!room:example.com".to_owned().try_into().unwrap();
+        let sender: OwnedUserId = "@user:example.com".to_owned().try_into().unwrap();
+
+        let event_json = serde_json::json!({
+            "event_id": event_id,
+            "room_id": room_id,
+            "sender": sender,
+            "type": "m.room.member",
+            "state_key": "@user:example.com",
+            "content": { "membership": "join" },
+            "origin_server_ts": 100,
+            "prev_events": [],
+            "auth_events": [],
+        });
+
+        let guest_event = GuestEvent {
+            event: serde_json::from_value(event_json.clone()).unwrap(),
+            content: serde_json::from_value(event_json["content"].clone()).unwrap(),
+            event_id: event_id.clone(),
+            room_id,
+            sender,
+            event_type: TimelineEventType::RoomMember,
+            prev_events: vec![],
+            auth_events: vec![],
+        };
+
+        let mut state_map = StateMap::new();
+        state_map.insert(
+            ("m.room.member".into(), "@user:example.com".to_string()),
+            event_id.clone(),
+        );
+
+        let mut event_map = BTreeMap::new();
+        event_map.insert(event_id.clone(), guest_event);
+
+        let mut auth_chain_set = HashSet::new();
+        auth_chain_set.insert(event_id);
+
+        let input = DAGMergeInput {
+            room_version: RoomVersionId::V10,
+            state_to_resolve: vec![state_map.clone()],
+            auth_chains: vec![auth_chain_set],
+            event_map: event_map.clone(),
+        };
+
+        // Host Native Resolution (Ground Truth)
+        let rules = input.room_version.rules().unwrap();
+        let state_res_v2_rules = rules.state_res.v2_rules().unwrap();
+
+        let native_resolved = resolve(
+            &rules.authorization,
+            state_res_v2_rules,
+            &input.state_to_resolve,
+            input.auth_chains.clone(),
+            |id| input.event_map.get(id).cloned(),
+            |_| Some(HashSet::new()),
+        )
+        .expect("Native resolution failed");
+
+        let mut native_hasher = Sha256::new();
+        for ((event_type, state_key), id) in native_resolved {
+            let event_type = event_type as ruma_events::StateEventType;
+            let state_key: String = state_key;
+            let id: OwnedEventId = id;
+
+            native_hasher.update(event_type.to_string().as_bytes());
+            native_hasher.update(state_key.as_bytes());
+            native_hasher.update(id.as_str().as_bytes());
+        }
+        let native_hash: [u8; 32] = native_hasher.finalize().into();
+
+        // ZKVM Guest Execution (Simulation)
+        let prover_client = ProverClient::builder().cpu().build();
+        let mut stdin = SP1Stdin::new();
+        stdin.write(&input);
+
+        let (mut public_values, _report) = prover_client
+            .execute(sp1_sdk::Elf::Static(ZK_MATRIX_GUEST_ELF), stdin)
+            .run()
+            .expect("Guest execution failed");
+
+        let output: DAGMergeOutput = public_values.read();
+
+        // Parity Check
+        assert_eq!(
+            native_hash, output.resolved_state_hash,
+            "Ground Truth Parity Mismatch! Host and ZK-Guest disagree on resolved state."
+        );
+        println!(
+            "✓ Ground Truth Parity Verified! Resolved State Hash: {:?}",
+            native_hash
+        );
+    }
 }
