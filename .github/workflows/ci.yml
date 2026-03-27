@@ -31,6 +31,9 @@ jobs:
       - name: Install Protoc
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
+      - name: Print System & Toolchain Diagnostics
+        run: make cpu-info
+
       - name: Check Formatting
         run: cargo fmt --all -- --check
 

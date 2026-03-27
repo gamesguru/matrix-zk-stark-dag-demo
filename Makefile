@@ -76,6 +76,38 @@ fixtures: ##H Download Ruma state resolution test fixtures
 	@echo "Saved to res/ruma_bootstrap_events.json"
 
 
+.PHONY: cpu-info
+cpu-info: ##H Print CPU info relevant to native target-cpu
+	@echo "=== CPU Model ==="
+	@grep -m1 'model name' /proc/cpuinfo 2>/dev/null || sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "unknown"
+	@echo "=== Architecture ==="
+	@uname -a
+	@echo "=== rustc Host Target ==="
+	@rustc -vV | grep host
+	@echo "=== rustc Native CPU ==="
+	@rustc --print=cfg -C target-cpu=native 2>/dev/null | grep target_feature | sort
+	@echo "=== CPU Flags [from /proc/cpuinfo] ==="
+	@grep -m1 'flags' /proc/cpuinfo 2>/dev/null | tr ' ' '\n' | grep -E 'avx|sse|aes|bmi|fma|popcnt|lzcnt|sha|pclmul' | sort
+	@echo "=== GCC Version ==="
+	@gcc --version | head -n 1 || true
+	@echo "=== G++ / C++ Toolchain ==="
+	@g++ --version | head -n 1 || true
+	@echo "=== Clang / LLVM ==="
+	@clang --version | head -n 1 || true
+	@echo "=== GLIBC Version ==="
+	@ldd --version | head -n 1 || true
+	@echo "=== GNU Make Header ==="
+	@make --version | head -n 1 || true
+	@echo "=== Python Version ==="
+	@python3 --version || true
+	@echo "=== Kernel Info ==="
+	@uname -srv || true
+	@echo "=== Rust Toolchains ==="
+	@rustup show || true
+	@echo "=== SP1 Toolchain ==="
+	@cargo prove --version || true
+
+
 LINT_LOCS_PY ?= $(shell git ls-files '*.py')
 
 .PHONY: format
