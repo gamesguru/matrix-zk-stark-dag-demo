@@ -67,24 +67,29 @@ Built on the **SP1 RISC-V zkVM**, allowing native Rust libraries (`ruma-state-re
 We propose new endpoints to securely retrieve these ZK rollups.
 
 ### 1. Server-to-Server (Federation API)
+
 When a Matrix homeserver joins a room, it requests the proof from a resident server.
 
 **Request:**
+
 ```http
 GET /_matrix/federation/unstable/org.matrix.msc0000/zk_state_proof/!room:example.com
 Authorization: X-Matrix origin="joining.server",key="...",sig="..."
 ```
 
 ### 2. Client-to-Server (Client-Server API)
+
 The homeserver generously passes this exact proof down to end-user clients (Element, etc.) so they can perform edge-verification. The client requests the proof to verify the state trustlessly.
 
 **Request:**
+
 ```http
 GET /_matrix/client/unstable/org.matrix.msc0000/rooms/!room:example.com/zk_state_proof
 Authorization: Bearer <access_token>
 ```
 
 **Example Response (Both Endpoints):**
+
 ```json
 {
   "room_version": "12",
@@ -108,7 +113,7 @@ What does "verifying the proof" actually mean in practice?
 - **The Journal:** The public inputs/outputs. For Matrix joins, this strictly contains the starting room state hash and the final resolved state hash.
 - **The Receipt:** The bundle comprising the Journal, the `image_id` (the hash of the exact program/rules that were run), and the SNARK proof.
 
-When you verify the receipt, you are cryptographically asserting: *"I see mathematical proof that running this specific Matrix Ruleset program (`image_id`) on starting state `A` deterministically resulted in end state `B`."*
+When you verify the receipt, you are cryptographically asserting: _"I see mathematical proof that running this specific Matrix Ruleset program (`image_id`) on starting state `A` deterministically resulted in end state `B`."_
 
 ## Epoch Rollups & Prover Interaction
 
@@ -116,7 +121,7 @@ To prevent prohibitive CPU load, homeservers do not generate ZK proofs synchrono
 
 - **The ZK Server (Prover Node):** Generating a STARK proof requires massive computational power (often utilizing GPU clusters). Standard Matrix homeservers (like Synapse) do not do this themselves. Instead, they delegate the heavy lifting to a specialized external ZK Prover over an internal API/queue. The homeserver feeds the raw Matrix events to the Prover, and the Prover eventually returns the completed `~300 byte` receipt.
 - **Frequency:** Provers compute a new rollup periodically (e.g., bi-weekly or every 10,000 events).
-- **Determinism:** They take the agreed-upon state from the *last* epoch, process the large DAG delta, and produce a new checkpoint `resolved_state_root_hash`. Because Matrix State Resolution (v2) is strictly deterministic, multiple nodes will calculate the identical state.
+- **Determinism:** They take the agreed-upon state from the _last_ epoch, process the large DAG delta, and produce a new checkpoint `resolved_state_root_hash`. Because Matrix State Resolution (v2) is strictly deterministic, multiple nodes will calculate the identical state.
 - **Hybrid Verification:** When a node joins, it mathematically verifies the massive historic epoch in milliseconds using the Checkpoint SNARK. It then only performs native State Resolution on the tiny unproven event `delta` (the few events that happened since the last epoch cutoff).
 
 ## Is it truly "Zero Knowledge"?
@@ -125,7 +130,7 @@ Yes and no.
 
 In cryptography, "Zero Knowledge" means proving a statement without revealing the underlying data. In this architecture, we primarily leverage the **succinctness** (the "S" in SNARK) and **verifiable computation** aspects, rather than strict privacy (the "ZK").
 
-We *are* generating a proof that we executed Matrix rules over millions of events without forcing the verifier to download or see those events. The intermediate state transformations remain hidden from the final proof—fulfilling a technical definition of ZK computation.
+We _are_ generating a proof that we executed Matrix rules over millions of events without forcing the verifier to download or see those events. The intermediate state transformations remain hidden from the final proof—fulfilling a technical definition of ZK computation.
 
 However, Matrix room states are generally public to the servers inside them. We are not hiding the final output state (which you need to chat anyway); we are using ZK math to mathematically compress computation and skip the downloading of historical data.
 
