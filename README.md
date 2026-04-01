@@ -159,6 +159,12 @@ The SP1 zkVM runs standard RISC-V code. Vulnerabilities in the zkVM itself often
 
 To cryptographically neutralize this entire class of VM exploits, the Guest program in this repository strictly bans `unsafe` Rust via the `#![forbid(unsafe_code)]` compiler directive. All event parsing relies on heavily tested, safe data abstractions (like `ruma-state-res` and `ciborium`), ensuring the guest cannot be manipulated into performing unsafe memory operations regardless of the input DAG structure.
 
+### Post-Quantum Security
+
+SP1 utilizes a **STARK** architecture. Unlike older SNARKs which rely on elliptic curve pairings (vulnerable to Shor's algorithm on a quantum computer), STARKs derive their security entirely from collision-resistant hash functions (like Poseidon2 and Blake3). This makes the ZK-proof generation inherently **Quantum-Safe**.
+
+However, it is important to note that the underlying Matrix protocol currently relies on **Ed25519** elliptic curves for event authentication. Until the Matrix specification formally upgrades to a post-quantum signature scheme—most likely a **lattice-based signature scheme (like ML-DSA / Dilithium)** to keep event sizes small—the user signatures validated inside the proof remain theoretically vulnerable to future quantum attacks.
+
 ## License
 
 Dual-licensed under MIT or Apache 2.0.
