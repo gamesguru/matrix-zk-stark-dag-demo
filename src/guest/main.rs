@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Mitigate SP1 zero-register memory manipulation vulnerability by strictly forbidding arbitrary pointer writes.
+// https://blog.lambdaclass.com/the-future-of-zk-is-in-risc-v-zkvms-but-the-industry-must-be-careful-how-succincts-sp1s-departure-from-standards-causes-bugs/
+#![forbid(unsafe_code)]
 #![no_main]
 sp1_zkvm::entrypoint!(main);
 
