@@ -1,3 +1,11 @@
 [workspace]
 resolver = "2"
 members = ["src/host", "src/guest", "src/guest-unoptimized", "src/wasm-client"]
+
+[patch.crates-io]
+sp1-sdk = { path = "../risc/sp1/crates/sdk" }
+sp1-verifier = { path = "../risc/sp1/crates/verifier" }
+sp1-build = { path = "../risc/sp1/crates/build" }
+sp1-zkvm = { path = "../risc/sp1/crates/zkvm/entrypoint" }
+sp1-core-executor = { path = "../risc/sp1/crates/core/executor" }
+sp1-core-machine = { path = "../risc/sp1/crates/core/machine" }

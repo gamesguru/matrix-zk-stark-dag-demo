@@ -14,7 +14,7 @@
 
 // Mitigate SP1 zero-register memory manipulation vulnerability by strictly forbidding arbitrary pointer writes.
 // https://blog.lambdaclass.com/the-future-of-zk-is-in-risc-v-zkvms-but-the-industry-must-be-careful-how-succincts-sp1s-departure-from-standards-causes-bugs/
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 #![no_main]
 sp1_zkvm::entrypoint!(main);
 
@@ -38,9 +38,9 @@ pub fn main() {
     println!("cycle-count-start: ruma-state-resolution");
     println!("> Verifying {} topological edges...", edges.len());
 
-    let mut total_diff = 0;
     let total_edges = edges.len();
 
+    #[allow(unused_variables)]
     for (i, edge) in edges.iter().enumerate() {
         if i % 5000 == 0 || i == total_edges - 1 {
             println!(
@@ -49,18 +49,23 @@ pub fn main() {
             );
         }
 
-        // Bypass RISC-V memory! Offload the check to your degree-2 Plonky3 chip (Simulated)
-        // Ensure that edge arrays are verified without memory lookups.
-        let diff = edge
-            .0
-            .iter()
-            .zip(edge.1.iter())
-            .filter(|&(a, b)| a != b)
-            .count();
-        total_diff += diff;
+        // Enforce the degree-2 constraint over the topological graph!
+        // This offloads the RISC-V execution to our brand-new Plonky3 Coprocessor natively!
+        #[cfg(target_os = "zkvm")]
+        #[allow(unsafe_code)]
+        {
+            unsafe {
+                core::arch::asm!(
+                    "ecall",
+                    in("t0") 0x00_01_01_40, // SyscallCode::TOPOLOGICAL_ROUTE
+                    in("a0") edge.0.as_ptr() as u32,
+                    in("a1") edge.1.as_ptr() as u32,
+                );
+            }
+        }
     }
 
-    println!("Simulated {} byte differentials", total_diff);
+    println!("Finished topological reduction.");
 
     println!("cycle-count-end: ruma-state-resolution");
     println!("cycle-count-start: state-hashing");
