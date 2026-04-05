@@ -1,11 +1,19 @@
 [workspace]
 resolver = "2"
 members = ["src/host", "src/guest", "src/guest-unoptimized", "src/wasm-client"]
+exclude = ["sp1"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.81"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/gamesguru/matrix-zk-stark-dag-demo"
 
 [patch.crates-io]
-sp1-sdk = { git = "https://github.com/gamesguru/sp1.git", branch = "main" }
-sp1-verifier = { git = "https://github.com/gamesguru/sp1.git", branch = "main" }
-sp1-build = { git = "https://github.com/gamesguru/sp1.git", branch = "main" }
-sp1-zkvm = { git = "https://github.com/gamesguru/sp1.git", branch = "main" }
-sp1-core-executor = { git = "https://github.com/gamesguru/sp1.git", branch = "main" }
-sp1-core-machine = { git = "https://github.com/gamesguru/sp1.git", branch = "main" }
+sp1-sdk = { path = "sp1/crates/sdk" }
+sp1-verifier = { path = "sp1/crates/verifier" }
+sp1-build = { path = "sp1/crates/build" }
+sp1-zkvm = { path = "sp1/crates/zkvm/entrypoint" }
+sp1-core-executor = { path = "sp1/crates/core/executor" }
+sp1-core-machine = { path = "sp1/crates/core/machine" }
