@@ -389,7 +389,7 @@ fn main() {
         };
         let mut input_bytes = Vec::new();
         ciborium::into_writer(&input, &mut input_bytes).unwrap();
-        stdin.write_vec(input_bytes);
+        stdin.write(&input_bytes);
     } else {
         println!("> Running OPTIMIZED Pipeline (Linear Edge Verification)");
         stdin.write(&edges);
