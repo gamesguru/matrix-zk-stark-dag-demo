@@ -630,13 +630,15 @@ mod tests {
         use sha2::{Digest, Sha256};
 
         // Load real bootstrap events
-        let ruma_path = "res/ruma_bootstrap_events.json";
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let ruma_path = std::path::Path::new(manifest_dir).join("../../res/ruma_bootstrap_events.json");
+
         // Gracefully skip this test if the bootstrap fixtures are missing
         // to avoid breaking the fast local development cycle.
-        let file_content = match std::fs::read_to_string(ruma_path) {
+        let file_content = match std::fs::read_to_string(&ruma_path) {
             Ok(c) => c,
             Err(_) => {
-                println!("\n[!] SKIP: Missing bootstrap fixtures. Run 'make setup' if you want to verify parity.");
+                println!("\n[!] SKIP: Missing bootstrap fixtures at {:?}. Run 'make setup' if you want to verify parity.", ruma_path);
                 return;
             }
         };
