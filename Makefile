@@ -53,12 +53,12 @@ benchmark-lite: ##H Cycle count simulation on minimal 5-event fixture
 .PHONY: prove
 prove: ##H Build SP1 Guest ELF and Generate STARK Proof
 	@echo "Running Host Prover (Auto-Compiling SP1 RISC-V 32-bit Guest)..."
-	SP1_PROVE=true $(CARGO) run --release --bin zk-matrix-join-host
+	RUST_LOG=info SP1_PROVE=true $(CARGO) run --release --bin zk-matrix-join-host
 
 .PHONY: prove-lite
 prove-lite: ##H Generate STARK Proof on the minimal 5-event fixture
 	@echo "Comparing benchmark parity: Proving offline 5-event fixture..."
-	MATRIX_FIXTURE_PATH=res/ruma_bootstrap_events.json SP1_PROVE=true $(CARGO) run --release --bin zk-matrix-join-host
+	RUST_LOG=info MATRIX_FIXTURE_PATH=res/ruma_bootstrap_events.json SP1_PROVE=true $(CARGO) run --release --bin zk-matrix-join-host
 
 .PHONY: wasm
 wasm: ##H Build the WebAssembly light-client Verifier

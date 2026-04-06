@@ -362,7 +362,7 @@ fn main() {
     println!("  [✓] Verification Key is mathematically sound. Phase 2 entropy verified.");
 
     println!("> Initializing SP1 Prover (Fetching setup parameters...)");
-    let prover_client = ProverClient::builder().cpu().build();
+    let prover_client = ProverClient::from_env();
 
     let is_unoptimized = std::env::var("EXECUTE_UNOPTIMIZED").is_ok();
     let target_elf = if is_unoptimized {
@@ -649,7 +649,7 @@ mod tests {
         let native_hash: [u8; 32] = native_hasher.finalize().into();
 
         // ZKVM Guest Execution (Simulation)
-        let prover_client = ProverClient::builder().cpu().build();
+        let prover_client = ProverClient::from_env();
 
         let mut edges: std::vec::Vec<([u8; 32], [u8; 32])> = std::vec::Vec::new();
         fn hash_str(s: &str) -> [u8; 32] {
