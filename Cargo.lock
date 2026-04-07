@@ -6527,31 +6527,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "zk-matrix-pure-plonky3"
-version = "0.1.0"
-dependencies = [
- "blake3",
- "clap",
- "memmap2",
- "rand 0.8.5",
- "serde",
- "serde_json",
- "slop-air",
- "slop-algebra",
- "slop-baby-bear",
- "slop-challenger",
- "slop-commit",
- "slop-dft",
- "slop-fri",
- "slop-matrix",
- "slop-multilinear",
- "slop-tensor",
- "slop-uni-stark",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "zk-matrix-wasm"
 version = "0.1.0"
 dependencies = [
