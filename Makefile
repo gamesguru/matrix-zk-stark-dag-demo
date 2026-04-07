@@ -40,8 +40,8 @@ benchmark: ##H Run Verifiable Simulation for cycle counting (Fast, requires less
 	@echo "Running fast verifiable cycle simulation..."
 	$(CARGO) run --release --bin zk-matrix-join-host
 
-.PHONY: benchmark-unoptimized
-benchmark-unoptimized: ##H Run Verifiable Simulation with DAG Graph unoptimized inside Guest
+.PHONY: benchmark-unopt
+benchmark-unopt: ##H Run Verifiable Simulation with DAG Graph unoptimized inside Guest
 	@echo "Running fast verifiable cycle simulation (UNOPTIMIZED GRAPH NATIVE)..."
 	EXECUTE_UNOPTIMIZED=1 $(CARGO) run --release --bin zk-matrix-join-host
 
@@ -60,6 +60,10 @@ prove-lite: ##H Generate STARK Proof on the minimal 5-event fixture
 	@echo "Comparing benchmark parity: Proving offline 5-event fixture..."
 	RUST_LOG=info MATRIX_FIXTURE_PATH=res/ruma_bootstrap_events.json SP1_PROVE=true $(CARGO) run --release --bin zk-matrix-join-host
 
+.PHONY: prove-groth16
+prove-groth16: ##H Generate full Groth16 Proof (Includes recursive wrap, slow)
+	@echo "Generating full recursive Groth16 proof (SNARK) using local artifacts..."
+	RUST_LOG=info MATRIX_FIXTURE_PATH=res/ruma_bootstrap_events.json SP1_PROVE=true SP1_GROTH16=true SP1_CIRCUIT_ARTIFACTS_DIR=$(shell pwd)/sp1/build-artifacts/v6.1.0-rc1 SP1_CIRCUIT_VERSION=v6.1.0-rc1 $(CARGO) run --release --bin zk-matrix-join-host
 .PHONY: wasm
 wasm: ##H Build the WebAssembly light-client Verifier
 	@echo "Compiling WASM bindings..."
