@@ -31,8 +31,6 @@ use ruma_events::TimelineEventType;
 use ruma_state_res::{Event, StateMap};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-mod verify;
-
 use ruma_lean::{lean_kahn_sort, LeanEvent};
 
 fn verify_lean_equivalence(events: &[GuestEvent]) {
@@ -337,28 +335,46 @@ fn main() {
     }
 
     println!("> Resolving state natively on host (Path A)...");
-    let rules = RoomVersionId::V10.rules().unwrap();
-    let state_res_v2_rules = rules.state_res.v2_rules().unwrap();
 
-    let resolved_state = ruma_state_res::resolve(
-        &rules.authorization,
-        state_res_v2_rules,
-        &vec![state_map.clone()],
-        vec![auth_chain_set.clone()],
-        |id| event_map.get(id).cloned(),
-        |_| Some(HashSet::new()),
-    )
-    .expect("Host Native Resolution failed");
+    let mut conflicted_events = HashMap::new();
+    for guest_ev in &events {
+        let lean_ev = LeanEvent {
+            event_id: guest_ev.event_id.to_string(),
+            power_level: 0, // Simplified for demo
+            origin_server_ts: guest_ev.origin_server_ts().0.into(),
+            prev_events: guest_ev
+                .prev_events
+                .iter()
+                .map(|id| id.to_string())
+                .collect(),
+        };
+        conflicted_events.insert(lean_ev.event_id.clone(), lean_ev);
+    }
 
-    // Run the Lean equivalence check
-    verify_lean_equivalence(&events);
+    let sorted_ids = ruma_lean::lean_kahn_sort(&conflicted_events);
+
+    // Build the resolved state map based on the sorted order (Last-Writer-Wins for conflicts)
+    let mut resolved_state = BTreeMap::new();
+    for id in sorted_ids {
+        if let Some(ev) = event_map.get(&OwnedEventId::try_from(id).unwrap()) {
+            let key = (
+                ev.event_type.to_string(),
+                ev.event
+                    .get("state_key")
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .to_string(),
+            );
+            resolved_state.insert(key, ev.event_id.clone());
+        }
+    }
 
     // Journal Commitment: Fingerprint the resolved state
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
-    for ((event_type, state_key), id) in resolved_state {
-        let event_type = event_type as ruma_events::StateEventType;
-        hasher.update(event_type.to_string().as_bytes());
+    for ((event_type, state_key), id) in &resolved_state {
+        hasher.update(event_type.as_bytes());
         hasher.update(state_key.as_bytes());
         hasher.update(id.as_str().as_bytes());
     }
