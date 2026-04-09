@@ -118,11 +118,12 @@ pub fn main() {
                 .iter()
                 .map(|id| id.to_string())
                 .collect(),
+            depth: 0, // Simplified for demo
         };
         conflicted_events.insert(lean_ev.event_id.clone(), lean_ev);
     }
 
-    let sorted_ids = lean_kahn_sort(&conflicted_events);
+    let sorted_ids = lean_kahn_sort(&conflicted_events, StateResVersion::V2);
 
     // Build the resolved state map based on the sorted order (Last-Writer-Wins)
     let mut resolved_state = BTreeMap::new();
