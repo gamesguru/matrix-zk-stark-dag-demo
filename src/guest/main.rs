@@ -26,11 +26,13 @@ use alloc::vec::Vec;
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct DAGMergeOutput {
     pub resolved_state_hash: [u8; 32],
+    pub event_count: u32,
 }
 
 pub fn main() {
     let edges: Vec<(u32, u32)> = sp1_zkvm::io::read();
     let expected_hash: [u8; 32] = sp1_zkvm::io::read();
+    let event_count: u32 = sp1_zkvm::io::read();
 
     println!("cycle-count-start: resolution-initialization");
     println!("cycle-count-start: ruma-state-resolution");
@@ -57,6 +59,7 @@ pub fn main() {
 
     let output = DAGMergeOutput {
         resolved_state_hash: expected_hash,
+        event_count,
     };
 
     println!("cycle-count-end: state-hashing");

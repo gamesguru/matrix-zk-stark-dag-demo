@@ -43,6 +43,11 @@ benchmark-lite: ##H Run Simulation with Tiny 5-Event Graph
 	@echo "Running ZK-Matrix-Join Benchmark (Lite)..."
 	MATRIX_FIXTURE_PATH=res/ruma_bootstrap_events.json $(CARGO) run --release --bin zk-matrix-join-host
 
+.PHONY: benchmark-batch
+benchmark-batch: ##H Run Simulation with Concise DSL Fixtures
+	@echo "Running ZK-Matrix-Join Benchmark (Batch DSL)..."
+	BATCH_FIXTURE=demo $(CARGO) run --release --bin zk-matrix-join-host
+
 .PHONY: prove
 prove: ##H Generate full SP1 STARK Proof
 	@echo "Generating Pure STARK Proof..."
@@ -143,16 +148,31 @@ lint: ##H Run clippy to lint the codebase and check compilation
 	python3 scripts/detect_vuln_002.py
 
 .PHONY: coverage
-coverage: ##H Run code coverage and generate HTML report
-	@echo "Running code coverage..."
-	$(CARGO) tarpaulin --out Html --output-dir .tmp/coverage
+coverage: ##H Run workspace code coverage and generate HTML report
+	@echo "Running focused workspace code coverage..."
+	$(CARGO) tarpaulin --out Html \
+		--output-dir .tmp/coverage \
+		--exclude-files "sp1/*" "**/target/*" \
+		--ignore-panics \
+		--ignore-tests \
+		--skip-clean
 
+.PHONY: coverage-lean
+coverage-lean: ##H Run focused code coverage for the ruma-lean library
+	@echo "Running focused code coverage for ruma-lean..."
+	$(CARGO) tarpaulin -p ruma-lean --out Html \
+		--output-dir .tmp/coverage-lean \
+		--exclude-files "sp1/*" "src/*" "**/target/*" \
+		--ignore-panics \
+		--ignore-tests \
+		--skip-clean
 .PHONY: clean
 clean: ##H Clean up cache and optionally build artifacts
 	@echo "Cleaning up..."
 	find . -name .mypy_cache -exec rm -rf {} +;
 	find . -name .ruff_cache -exec rm -rf {} +;
 	find . -name .pytest_cache -exec rm -rf {} +;
+	rm -rf .tmp/coverage .tmp/coverage-lean
 # 	$(CARGO) clean
 
 

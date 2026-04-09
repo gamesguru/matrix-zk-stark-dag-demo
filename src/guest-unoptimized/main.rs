@@ -86,6 +86,7 @@ pub struct DAGMergeInput {
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct DAGMergeOutput {
     pub resolved_state_hash: [u8; 32],
+    pub event_count: u32,
 }
 
 pub fn main() {
@@ -93,6 +94,8 @@ pub fn main() {
     let input_bytes: Vec<u8> = sp1_zkvm::io::read();
     let input: DAGMergeInput =
         ciborium::from_reader(input_bytes.as_slice()).expect("Failed to deserialize CBOR input");
+
+    let event_count = input.event_map.len() as u32;
 
     println!("cycle-count-start: resolution-initialization");
 
@@ -158,6 +161,7 @@ pub fn main() {
 
     let output = DAGMergeOutput {
         resolved_state_hash: expected_hash,
+        event_count,
     };
 
     println!("cycle-count-end: state-hashing");

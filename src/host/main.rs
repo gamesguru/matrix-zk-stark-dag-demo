@@ -87,7 +87,10 @@ pub struct DAGMergeInput {
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct DAGMergeOutput {
     pub resolved_state_hash: [u8; 32],
+    pub event_count: u32,
 }
+
+mod fixtures;
 
 fn main() {
     // Enable SP1 Prover logging so we can see the progress of STARK generation!
@@ -96,153 +99,169 @@ fn main() {
     println!("* Starting ZK-Matrix-Join SP1 Demo...");
     println!("--------------------------------------------------");
 
-    // The Host does the heavy lifting: resolving the state according to Kahn's topological sort.
-    // Here we simulate the result of `ruma_state_res::resolve` mathematically sorting the events.
-    // Read the true downloaded Matrix State DAG!
-    let state_file_path = "res/real_10k.json";
-    let fallback_path = "res/massive_matrix_state.json";
-    let ruma_path = "res/ruma_bootstrap_events.json";
+    let room_id = OwnedRoomId::try_from("!demo:example.com").unwrap();
+    let mut fixture_path_str = "res/custom".to_string();
+    let total_raw_len;
 
-    let path: String = std::env::var("MATRIX_FIXTURE_PATH").unwrap_or_else(|_| {
-        if std::path::Path::new(state_file_path).exists() {
-            state_file_path.to_string()
-        } else if std::path::Path::new(fallback_path).exists() {
-            fallback_path.to_string()
-        } else {
-            ruma_path.to_string()
-        }
-    });
+    // The Host can load from JSON or from a Concise Fixture DSL
+    let events: Vec<GuestEvent> = if let Ok(_fixture_str) = std::env::var("BATCH_FIXTURE") {
+        println!("> Loading concise Matrix Fixtures from environment...");
+        let rows: &[fixtures::FixtureRow] = &[
+            ("Alice", 100, 10, 1, &[], "alice"),
+            ("Bob", 50, 20, 2, &["0"], "bob"),
+            ("Charlie", 100, 15, 2, &["0"], "charlie"),
+        ];
+        let evs = fixtures::parse_fixture_rows(&room_id, rows);
+        total_raw_len = evs.len();
+        evs
+    } else {
+        let state_file_path = "res/real_10k.json";
+        let fallback_path = "res/massive_matrix_state.json";
+        let ruma_path = "res/ruma_bootstrap_events.json";
 
-    println!("> Loading raw Matrix State DAG from {}...", path);
-    let file_content = std::fs::read_to_string(&path)
-        .expect("Failed to read JSON state file (try running the python fetcher!)");
-    let raw_events: Vec<serde_json::Value> = serde_json::from_str(&file_content).unwrap();
-
-    let raw_len = raw_events.len();
-    let mut i = 0;
-    let events: Vec<GuestEvent> = raw_events
-        .into_iter()
-        .filter_map(|ev| {
-            i += 1;
-            let event_type_val = ev.get("type")?.as_str()?;
-            if i % 2500 == 0 || i == raw_len {
-                println!(
-                    "  ... [Parsing Event {}/{}] Type: {}",
-                    i, raw_len, event_type_val
-                );
+        let path: String = std::env::var("MATRIX_FIXTURE_PATH").unwrap_or_else(|_| {
+            if std::path::Path::new(state_file_path).exists() {
+                state_file_path.to_string()
+            } else if std::path::Path::new(fallback_path).exists() {
+                fallback_path.to_string()
+            } else {
+                ruma_path.to_string()
             }
+        });
+        fixture_path_str = path.clone();
 
-            let event = match serde_json::from_value::<CanonicalJsonObject>(ev.clone()) {
-                Ok(x) => x,
-                Err(e) => {
-                    if i == 1 {
-                        println!("Event 1 Failed at event: {}", e);
-                    }
-                    return None;
+        println!("> Loading raw Matrix State DAG from {}...", path);
+        let file_content = std::fs::read_to_string(&path)
+            .expect("Failed to read JSON state file (try running the python fetcher!)");
+        let raw_events: Vec<serde_json::Value> = serde_json::from_str(&file_content).unwrap();
+
+        let raw_len = raw_events.len();
+        total_raw_len = raw_len;
+        let mut i = 0;
+        raw_events
+            .into_iter()
+            .filter_map(|ev| {
+                i += 1;
+                let event_type_val = ev.get("type")?.as_str()?;
+                if i % 2500 == 0 || i == raw_len {
+                    println!(
+                        "  ... [Parsing Event {}/{}] Type: {}",
+                        i, raw_len, event_type_val
+                    );
                 }
-            };
-            let content_val = match ev.get("content") {
-                Some(v) => v.clone(),
-                None => {
-                    if i == 1 {
-                        println!("Event 1 Failed at content missing");
-                    }
-                    return None;
-                }
-            };
-            let content =
-                match serde_json::from_value::<Box<serde_json::value::RawValue>>(content_val) {
+
+                let event = match serde_json::from_value::<CanonicalJsonObject>(ev.clone()) {
                     Ok(x) => x,
                     Err(e) => {
                         if i == 1 {
-                            println!("Event 1 Failed at content: {}", e);
+                            println!("Event 1 Failed at event: {}", e);
                         }
                         return None;
                     }
                 };
-            let event_id = match serde_json::from_value::<OwnedEventId>(
-                ev.get("event_id")
-                    .unwrap_or(&serde_json::Value::Null)
-                    .clone(),
-            ) {
-                Ok(x) => x,
-                Err(e) => {
-                    if i == 1 {
-                        println!("Event 1 Failed at event_id: {}", e);
+                let content_val = match ev.get("content") {
+                    Some(v) => v.clone(),
+                    None => {
+                        if i == 1 {
+                            println!("Event 1 Failed at content missing");
+                        }
+                        return None;
                     }
-                    return None;
-                }
-            };
-            let room_id = match serde_json::from_value::<OwnedRoomId>(
-                ev.get("room_id")
-                    .unwrap_or(&serde_json::Value::Null)
-                    .clone(),
-            ) {
-                Ok(x) => x,
-                Err(e) => {
-                    if i == 1 {
-                        println!("Event 1 Failed at room_id: {}", e);
+                };
+                let content =
+                    match serde_json::from_value::<Box<serde_json::value::RawValue>>(content_val) {
+                        Ok(x) => x,
+                        Err(e) => {
+                            if i == 1 {
+                                println!("Event 1 Failed at content: {}", e);
+                            }
+                            return None;
+                        }
+                    };
+                let event_id = match serde_json::from_value::<OwnedEventId>(
+                    ev.get("event_id")
+                        .unwrap_or(&serde_json::Value::Null)
+                        .clone(),
+                ) {
+                    Ok(x) => x,
+                    Err(e) => {
+                        if i == 1 {
+                            println!("Event 1 Failed at event_id: {}", e);
+                        }
+                        return None;
                     }
-                    return None;
-                }
-            };
-            let sender = match serde_json::from_value::<OwnedUserId>(
-                ev.get("sender").unwrap_or(&serde_json::Value::Null).clone(),
-            ) {
-                Ok(x) => x,
-                Err(e) => {
-                    if i <= 3 {
-                        println!("Event {} Failed at sender: {}", i, e);
+                };
+                let room_id_obj = match serde_json::from_value::<OwnedRoomId>(
+                    ev.get("room_id")
+                        .unwrap_or(&serde_json::Value::Null)
+                        .clone(),
+                ) {
+                    Ok(x) => x,
+                    Err(e) => {
+                        if i == 1 {
+                            println!("Event 1 Failed at room_id: {}", e);
+                        }
+                        return None;
                     }
-                    return None;
-                }
-            };
-            let event_type = match serde_json::from_value::<TimelineEventType>(
-                ev.get("type").unwrap_or(&serde_json::Value::Null).clone(),
-            ) {
-                Ok(x) => x,
-                Err(e) => {
-                    if i == 1 {
-                        println!("Event 1 Failed at type: {}", e);
+                };
+                let sender = match serde_json::from_value::<OwnedUserId>(
+                    ev.get("sender").unwrap_or(&serde_json::Value::Null).clone(),
+                ) {
+                    Ok(x) => x,
+                    Err(e) => {
+                        if i <= 3 {
+                            println!("Event {} Failed at sender: {}", i, e);
+                        }
+                        return None;
                     }
-                    return None;
-                }
-            };
-            let prev_events: Vec<OwnedEventId> = serde_json::from_value(
-                ev.get("prev_events")
-                    .unwrap_or(&serde_json::Value::Array(vec![]))
-                    .clone(),
-            )
-            .unwrap_or_default();
-            let auth_events: Vec<OwnedEventId> = serde_json::from_value(
-                ev.get("auth_events")
-                    .unwrap_or(&serde_json::Value::Array(vec![]))
-                    .clone(),
-            )
-            .unwrap_or_default();
+                };
+                let event_type = match serde_json::from_value::<TimelineEventType>(
+                    ev.get("type").unwrap_or(&serde_json::Value::Null).clone(),
+                ) {
+                    Ok(x) => x,
+                    Err(e) => {
+                        if i == 1 {
+                            println!("Event 1 Failed at type: {}", e);
+                        }
+                        return None;
+                    }
+                };
+                let prev_events: Vec<OwnedEventId> = serde_json::from_value(
+                    ev.get("prev_events")
+                        .unwrap_or(&serde_json::Value::Array(vec![]))
+                        .clone(),
+                )
+                .unwrap_or_default();
+                let auth_events: Vec<OwnedEventId> = serde_json::from_value(
+                    ev.get("auth_events")
+                        .unwrap_or(&serde_json::Value::Array(vec![]))
+                        .clone(),
+                )
+                .unwrap_or_default();
 
-            Some(GuestEvent {
-                event,
-                content,
-                event_id,
-                room_id,
-                sender,
-                event_type,
-                prev_events,
-                auth_events,
-                public_key: None,
-                signature: None,
-                verified_on_host: false,
+                Some(GuestEvent {
+                    event,
+                    content,
+                    event_id,
+                    room_id: room_id_obj,
+                    sender,
+                    event_type,
+                    prev_events,
+                    auth_events,
+                    public_key: None,
+                    signature: None,
+                    verified_on_host: false,
+                })
             })
-        })
-        .collect();
+            .collect()
+    };
 
     // Parallel Public Key Fetching & Signature Verification
     println!(
         "> [Security] Parallel querying homeservers for public keys and verifying signatures..."
     );
 
-    let key_cache_path = format!("{}.keys.json", path);
+    let key_cache_path = format!("{}.keys.json", fixture_path_str);
     let mut key_cache: HashMap<String, String> = if std::path::Path::new(&key_cache_path).exists() {
         let content = std::fs::read_to_string(&key_cache_path).unwrap();
         serde_json::from_str(&content).unwrap_or_default()
@@ -311,7 +330,6 @@ fn main() {
         )
         .ok();
     }
-
     use rayon::prelude::*;
     let events: Vec<GuestEvent> = events
         .into_par_iter()
@@ -362,7 +380,7 @@ fn main() {
         })
         .collect();
 
-    let skipped = raw_len - events.len();
+    let skipped = total_raw_len - events.len();
     if skipped > 0 {
         println!("> Notice: Skipped {} ill-formed or legacy events that violate Ruma specs (e.g. >255 byte constraints)", skipped);
     }
@@ -598,6 +616,7 @@ fn main() {
         println!("> Running OPTIMIZED Pipeline (Linear Edge Verification)");
         stdin.write(&edges);
         stdin.write(&expected_hash);
+        stdin.write(&(events.len() as u32));
     }
 
     if std::env::var("SP1_PROVE").is_ok() {
@@ -639,6 +658,7 @@ fn main() {
             "Matrix Resolved State Hash (Journal): {:?}",
             hex::encode(output.resolved_state_hash)
         );
+        println!("Events Verified in Proof: {}", output.event_count);
 
         println!("Saving STARK Proof to res/proof-with-io.bin...");
         proof
@@ -667,6 +687,7 @@ fn main() {
             "Matrix Resolved State Hash (Journal): {:?}",
             hex::encode(output.resolved_state_hash)
         );
+        println!("Events Verified in Proof: {}", output.event_count);
     }
 }
 
@@ -830,11 +851,13 @@ mod tests {
                     .iter()
                     .map(|id| id.to_string())
                     .collect(),
+                depth: 0,
             };
             conflicted_events.insert(lean_ev.event_id.clone(), lean_ev);
         }
 
-        let sorted_ids = ruma_lean::lean_kahn_sort(&conflicted_events);
+        let sorted_ids =
+            ruma_lean::lean_kahn_sort(&conflicted_events, ruma_lean::StateResVersion::V2);
         let mut native_resolved = BTreeMap::new();
         for id in sorted_ids {
             let eid = OwnedEventId::try_from(id).unwrap();
@@ -1004,11 +1027,13 @@ mod tests {
                     .iter()
                     .map(|id| id.to_string())
                     .collect(),
+                depth: 0,
             };
             conflicted_events.insert(lean_ev.event_id.clone(), lean_ev);
         }
 
-        let sorted_ids = ruma_lean::lean_kahn_sort(&conflicted_events);
+        let sorted_ids =
+            ruma_lean::lean_kahn_sort(&conflicted_events, ruma_lean::StateResVersion::V2);
         let mut native_resolved = BTreeMap::new();
         for id in sorted_ids {
             let eid = OwnedEventId::try_from(id).unwrap();
