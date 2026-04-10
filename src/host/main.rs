@@ -14,15 +14,34 @@
 
 #![forbid(unsafe_code)]
 
+use clap::Parser;
 use jolt_sdk::host::Program;
 use serde::{Deserialize, Serialize};
-
-// Represents the binary, packed data we send to the guest as a Hint.
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 pub type StateMap<K> = BTreeMap<(String, String), K>;
 
 use ruma_lean::LeanEvent;
+
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Cli {
+    /// Path to the Matrix state JSON fixture
+    #[arg(short, long)]
+    input: Option<String>,
+
+    /// Name of the concise batch fixture to load (e.g., 'demo')
+    #[arg(short, long)]
+    batch: Option<String>,
+
+    /// Run the UNOPTIMIZED Path A (Full Spec State Resolution) inside the VM
+    #[arg(short, long)]
+    unoptimized: bool,
+
+    /// Generate a full cryptographic proof instead of just simulating
+    #[arg(short, long)]
+    prove: bool,
+}
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct GuestEvent {
@@ -60,6 +79,8 @@ use zk_matrix_join_guest::*;
 use zk_matrix_join_guest_unoptimized::*;
 
 fn main() {
+    let args = Cli::parse();
+
     println!("* Starting ZK-Matrix-Join Jolt Demo...");
     println!("--------------------------------------------------");
 
@@ -67,9 +88,15 @@ fn main() {
     let mut fixture_path_str = "res/custom".to_string();
     let total_raw_len;
 
+    // Use CLI arg or env var for batch fixture
+    let batch_fixture = args.batch.or_else(|| std::env::var("BATCH_FIXTURE").ok());
+
     // The Host can load from JSON or from a Concise Fixture DSL
-    let events: Vec<GuestEvent> = if let Ok(_fixture_str) = std::env::var("BATCH_FIXTURE") {
-        println!("> Loading concise Matrix Fixtures from environment...");
+    let events: Vec<GuestEvent> = if let Some(fixture_name) = batch_fixture {
+        println!(
+            "> Loading concise Matrix Fixtures ('{}') from environment/args...",
+            fixture_name
+        );
         let rows: &[fixtures::FixtureRow] = &[
             ("Alice", 100, 10, 1, &[], "alice"),
             ("Bob", 50, 20, 2, &["0"], "bob"),
@@ -83,15 +110,18 @@ fn main() {
         let fallback_path = "res/massive_matrix_state.json";
         let ruma_path = "res/ruma_bootstrap_events.json";
 
-        let path: String = std::env::var("MATRIX_FIXTURE_PATH").unwrap_or_else(|_| {
-            if std::path::Path::new(state_file_path).exists() {
-                state_file_path.to_string()
-            } else if std::path::Path::new(fallback_path).exists() {
-                fallback_path.to_string()
-            } else {
-                ruma_path.to_string()
-            }
-        });
+        let path: String = args
+            .input
+            .or_else(|| std::env::var("MATRIX_FIXTURE_PATH").ok())
+            .unwrap_or_else(|| {
+                if std::path::Path::new(state_file_path).exists() {
+                    state_file_path.to_string()
+                } else if std::path::Path::new(fallback_path).exists() {
+                    fallback_path.to_string()
+                } else {
+                    ruma_path.to_string()
+                }
+            });
         fixture_path_str = path.clone();
 
         println!("> Loading raw Matrix State DAG from {}...", path);
@@ -107,7 +137,7 @@ fn main() {
             .filter_map(|ev| {
                 i += 1;
                 let event_type_val = ev.get("type")?.as_str()?;
-                if i % 2500 == 0 || i == raw_len {
+                if i % 250000 == 0 || i == raw_len {
                     println!(
                         "  ... [Parsing Event {}/{}] Type: {}",
                         i, raw_len, event_type_val
@@ -385,8 +415,8 @@ fn main() {
         last_coord = target_coord;
     }
 
-    let is_unoptimized = std::env::var("EXECUTE_UNOPTIMIZED").is_ok();
-    let is_proving = std::env::var("JOLT_PROVE").is_ok();
+    let is_unoptimized = args.unoptimized || std::env::var("EXECUTE_UNOPTIMIZED").is_ok();
+    let is_proving = args.prove || std::env::var("JOLT_PROVE").is_ok();
 
     if is_proving {
         println!("Generating Jolt Proof for Matrix State Resolution...");

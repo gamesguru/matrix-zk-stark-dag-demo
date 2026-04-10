@@ -9,6 +9,7 @@ path = "main.rs"
 
 [dependencies]
 jolt-sdk = { git = "https://github.com/a16z/jolt.git", features = ["host"] }
+clap = { version = "4.4", features = ["derive"] }
 zk-matrix-join-guest = { path = "../guest" }
 zk-matrix-join-guest-unoptimized = { path = "../guest-unoptimized" }
 serde = { version = "1.0", features = ["derive"] }

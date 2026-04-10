@@ -10,9 +10,9 @@ ifneq (,$(wildcard ./.env))
 endif
 
 # Clean quotes from variables to avoid "makefile things"
-MATRIX_TOKEN := $(subst ",,$(subst ',,$(MATRIX_TOKEN)))
-MATRIX_HOMESERVER := $(subst ",,$(subst ',,$(MATRIX_HOMESERVER)))
-MATRIX_ROOM_ID := $(subst ",,$(subst ',,$(MATRIX_ROOM_ID)))
+MATRIX_TOKEN := $(subst ",,$(subst ",,$(MATRIX_TOKEN)))
+MATRIX_HOMESERVER := $(subst ",,$(subst ",,$(MATRIX_HOMESERVER)))
+MATRIX_ROOM_ID := $(subst ",,$(subst ",,$(MATRIX_ROOM_ID)))
 
 export RUST_BACKTRACE ?= 1
 export
@@ -41,22 +41,38 @@ benchmark: ##H Run the ZK-Matrix-Join Simulation
 .PHONY: benchmark-lite
 benchmark-lite: ##H Run Simulation with Tiny 5-Event Graph
 	@echo "Running ZK-Matrix-Join Benchmark (Lite)..."
-	MATRIX_FIXTURE_PATH=res/ruma_bootstrap_events.json $(CARGO) run --release --bin zk-matrix-join-host
+	$(CARGO) run --release --bin zk-matrix-join-host -- --input res/ruma_bootstrap_events.json
 
 .PHONY: benchmark-batch
 benchmark-batch: ##H Run Simulation with Concise DSL Fixtures
 	@echo "Running ZK-Matrix-Join Benchmark (Batch DSL)..."
-	BATCH_FIXTURE=demo $(CARGO) run --release --bin zk-matrix-join-host
+	$(CARGO) run --release --bin zk-matrix-join-host -- --batch demo
 
 .PHONY: prove
 prove: ##H Generate full Jolt STARK Proof
 	@echo "Generating Jolt STARK Proof..."
-	JOLT_PROVE=1 RUST_LOG=info $(CARGO) run --release --bin zk-matrix-join-host
+	RUST_LOG=info $(CARGO) run --release --bin zk-matrix-join-host -- --prove
+
+.PHONY: wasm
+wasm: ##H Build the WebAssembly light-client Verifier
+	@echo "Compiling WASM bindings..."
+	cd src/wasm-client && wasm-pack build --target web
+
+.PHONY: web-demo
+web-demo: ##H Run a local web server to test the WASM UI
+	@echo "================================================================"
+	@echo " ZK-Matrix WebAssembly Server is starting!"
+	@echo " Please manually open your web browser to:"
+	@echo " http://localhost:8080/demo/index.html"
+	@echo "================================================================"
+	python3 -m http.server 8080
 
 .PHONY: test
 test: ##H Run fast Native Resolution tests (<1s)
 	@echo "Running Fast Native Tests..."
 	$(CARGO) test -p zk-matrix-join-host -- --nocapture
+	@echo "Running ruma-lean formal parity tests..."
+	$(CARGO) test -p ruma-lean
 
 .PHONY: test-zk
 test-zk: ##H Run the full Jolt Parity Simulation
