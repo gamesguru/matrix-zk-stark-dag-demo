@@ -19,28 +19,25 @@ build: ##H Build the Rust project
 	@echo "Building ZK-Matrix-Join..."
 	$(CARGO) build
 
-.PHONY: run
-run: benchmark
-
-.PHONY: benchmark
-benchmark: ##H Run the ZK-Matrix-Join Simulation
-	@echo "Running ZK-Matrix-Join Benchmark..."
-	$(CARGO) run --release --bin ruma-zk -- run
+.PHONY: demo
+demo: ##H Run the ZK-Matrix-Join Simulation (Demo)
+	@echo "Running ZK-Matrix-Join Demo..."
+	$(CARGO) run --release --bin ruma-zk -- demo
 
 .PHONY: benchmark-lite
 benchmark-lite: ##H Run Simulation with Tiny 5-Event Graph
 	@echo "Running ZK-Matrix-Join Benchmark (Lite)..."
-	$(CARGO) run --release --bin ruma-zk -- run --input res/ruma_bootstrap_events.json
+	$(CARGO) run --release --bin ruma-zk -- demo --input res/ruma_bootstrap_events.json
 
 .PHONY: benchmark-batch
 benchmark-batch: ##H Run Simulation with Concise DSL Fixtures
 	@echo "Running ZK-Matrix-Join Benchmark (Batch DSL)..."
-	$(CARGO) run --release --bin ruma-zk -- run --batch demo
+	$(CARGO) run --release --bin ruma-zk -- demo --batch demo
 
 .PHONY: prove
 prove: ##H Generate full Jolt STARK Proof
 	@echo "Generating Jolt STARK Proof..."
-	RUST_LOG=info $(CARGO) run --release --bin ruma-zk -- run --prove
+	RUST_LOG=info $(CARGO) run --release --bin ruma-zk -- prove
 
 .PHONY: verify
 verify: ##H Verify an existing Jolt STARK Proof
@@ -143,6 +140,16 @@ coverage: ##H Run workspace code coverage and generate HTML report
 	$(CARGO) tarpaulin --out Html \
 		--output-dir .tmp/coverage \
 		--exclude-files "**/target/*" \
+		--ignore-panics \
+		--ignore-tests \
+		--skip-clean
+
+.PHONY: coverage-lean
+coverage-lean: ##H Run focused code coverage for the ruma-lean library
+	@echo "Running focused code coverage for ruma-lean..."
+	$(CARGO) tarpaulin -p ruma-lean --out Html \
+		--output-dir .tmp/coverage-lean \
+		--exclude-files "src/*" "**/target/*" \
 		--ignore-panics \
 		--ignore-tests \
 		--skip-clean
