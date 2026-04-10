@@ -1,7 +1,0 @@
-[submodule "sp1"]
-	path = sp1
-	url = https://github.com/gamesguru/sp1.git
-	branch = main
-[submodule "ruma-lean"]
-	path = ruma-lean
-	url = https://github.com/gamesguru/ruma-lean.git

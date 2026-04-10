@@ -1,7 +1,6 @@
 [workspace]
 resolver = "2"
 members = ["src/host", "src/guest", "src/guest-unoptimized", "src/wasm-client", "src/topological-prover", "ruma-lean"]
-exclude = ["sp1"]
 
 [workspace.package]
 version = "0.1.0"
@@ -11,9 +10,12 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/gamesguru/matrix-zk-stark-dag-demo"
 
 [patch.crates-io]
-sp1-sdk = { path = "sp1/crates/sdk" }
-sp1-verifier = { path = "sp1/crates/verifier" }
-sp1-build = { path = "sp1/crates/build" }
-sp1-zkvm = { path = "sp1/crates/zkvm/entrypoint" }
-sp1-core-executor = { path = "sp1/crates/core/executor" }
-sp1-core-machine = { path = "sp1/crates/core/machine" }
+ark-ff = { git = "https://github.com/a16z/arkworks-algebra", branch = "dev/twist-shout" }
+ark-ec = { git = "https://github.com/a16z/arkworks-algebra", branch = "dev/twist-shout" }
+ark-poly = { git = "https://github.com/a16z/arkworks-algebra", branch = "dev/twist-shout" }
+ark-serialize = { git = "https://github.com/a16z/arkworks-algebra", branch = "dev/twist-shout" }
+ark-bn254 = { git = "https://github.com/a16z/arkworks-algebra", branch = "dev/twist-shout" }
+allocative = { git = "https://github.com/facebookexperimental/allocative", rev = "85b773d85d526d068ce94724ff7a7b81203fc95e" }
+
+
+

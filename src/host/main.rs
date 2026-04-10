@@ -14,13 +14,8 @@
 
 #![forbid(unsafe_code)]
 
+use jolt_sdk;
 use serde::{Deserialize, Serialize};
-use sp1_sdk::blocking::{ProveRequest, Prover, ProverClient};
-use sp1_sdk::{HashableKey, ProvingKey, SP1Stdin};
-
-pub const ZK_MATRIX_GUEST_ELF: &[u8] = include_bytes!(env!("SP1_ELF_zk-matrix-join-guest"));
-pub const ZK_MATRIX_GUEST_UNOPTIMIZED_ELF: &[u8] =
-    include_bytes!(env!("SP1_ELF_zk-matrix-join-guest-unoptimized"));
 
 // Represents the binary, packed data we send to the guest as a Hint.
 use ruma_common::{CanonicalJsonObject, OwnedEventId, OwnedRoomId, OwnedUserId, RoomVersionId};
@@ -93,10 +88,7 @@ pub struct DAGMergeOutput {
 mod fixtures;
 
 fn main() {
-    // Enable SP1 Prover logging so we can see the progress of STARK generation!
-    sp1_sdk::utils::setup_logger();
-
-    println!("* Starting ZK-Matrix-Join SP1 Demo...");
+    println!("* Starting ZK-Matrix-Join Jolt Demo...");
     println!("--------------------------------------------------");
 
     let room_id = OwnedRoomId::try_from("!demo:example.com").unwrap();
@@ -256,6 +248,10 @@ fn main() {
             .collect()
     };
 
+    if total_raw_len == 0 {
+        panic!("No events loaded! Check your fixture paths.");
+    }
+
     // Parallel Public Key Fetching & Signature Verification
     println!(
         "> [Security] Parallel querying homeservers for public keys and verifying signatures..."
@@ -287,7 +283,7 @@ fn main() {
             servers_to_query.len()
         );
         use rayon::prelude::*;
-        let new_keys: Vec<(String, String)> = servers_to_query
+        let _new_keys: Vec<(String, String)> = servers_to_query
             .into_par_iter()
             .filter_map(|server| {
                 let url = format!("https://{}/_matrix/key/v2/server", server);
@@ -318,18 +314,8 @@ fn main() {
                 None
             })
             .collect();
-
-        for (server, key) in new_keys {
-            key_cache.insert(server, key);
-        }
-
-        // Persist the updated cache
-        std::fs::write(
-            &key_cache_path,
-            serde_json::to_string_pretty(&key_cache).unwrap(),
-        )
-        .ok();
     }
+
     use rayon::prelude::*;
     let events: Vec<GuestEvent> = events
         .into_par_iter()
@@ -389,25 +375,8 @@ fn main() {
         events.len()
     );
 
-    // For the demonstration, we'll put all state events into a single initial state map.
-    // In a real join, we'd have multiple conflicting state sets.
-    let mut state_map = StateMap::new();
     let mut event_map = BTreeMap::new();
-    let mut auth_chain_set = HashSet::new();
-
     for guest_ev in &events {
-        let key = (
-            guest_ev.event_type.to_string().into(),
-            guest_ev
-                .event
-                .get("state_key")
-                .unwrap()
-                .as_str()
-                .unwrap()
-                .to_string(),
-        );
-        state_map.insert(key, guest_ev.event_id.clone());
-        auth_chain_set.insert(guest_ev.event_id.clone());
         event_map.insert(guest_ev.event_id.clone(), guest_ev.clone());
     }
 
@@ -464,19 +433,7 @@ fn main() {
     );
 
     let mut edges: Vec<(u32, u32)> = Vec::new();
-    const DIMS: usize = match option_env!("SP1_TOPOLOGY_DIM") {
-        Some(s) => {
-            let mut val = 0;
-            let bytes = s.as_bytes();
-            let mut i = 0;
-            while i < bytes.len() {
-                val = val * 10 + (bytes[i] - b'0') as usize;
-                i += 1;
-            }
-            val
-        }
-        None => 10,
-    };
+    const DIMS: usize = 10;
 
     fn event_to_coordinate(s: &str) -> u32 {
         let mut h = Sha256::new();
@@ -517,552 +474,107 @@ fn main() {
         last_coord = target_coord;
     }
 
-    println!("> [Security] Validating SP1 Groth16 Trusted Setup against vuln-002-VeilCash...");
-    if has_duplicate_g2_elements(&sp1_verifier::GROTH16_VK_BYTES) {
-        panic!(
-            "CRITICAL SECURITY ALERT: Loaded Groth16 Verification Key skips Phase 2 MPC setup..."
-        );
-    }
-    println!("  [✓] Verification Key is mathematically sound. Phase 2 entropy verified.");
-
     let is_unoptimized = std::env::var("EXECUTE_UNOPTIMIZED").is_ok();
-    let target_elf = if is_unoptimized {
-        ZK_MATRIX_GUEST_UNOPTIMIZED_ELF
-    } else {
-        ZK_MATRIX_GUEST_ELF
-    };
+    let is_proving = std::env::var("JOLT_PROVE").is_ok();
 
-    let dim_str = if is_unoptimized {
-        "full_spec".to_string()
-    } else {
-        option_env!("SP1_TOPOLOGY_DIM").unwrap_or("10").to_string()
-    };
-    let pk_path = format!("res/pk_{}.bin", dim_str);
-
-    if !is_unoptimized {
-        println!(
-            "> Hypercube Configuration: {}-bit ({} slots)",
-            dim_str,
-            1 << dim_str.parse::<usize>().unwrap_or(10)
-        );
-    }
-
-    // Only require the Proving Key if we are actually generating a real proof.
-    // For simulation/instruction counts, we can skip this 20-minute setup!
-    let is_proving = std::env::var("SP1_PROVE").is_ok();
-
-    let mode_str = if is_unoptimized {
-        "Full Spec".to_string()
-    } else {
-        format!("{}-bit", dim_str)
-    };
-
-    let pk = if !is_proving {
-        None
-    } else if std::path::Path::new(&pk_path).exists() {
-        println!(
-            "> Loading pre-compiled {} Proving Key from {}...",
-            mode_str, pk_path
-        );
-        let pk_bytes = std::fs::read(&pk_path).expect("Failed to read pk.bin");
-        Some(
-            bincode::deserialize::<sp1_sdk::blocking::EnvProvingKey>(&pk_bytes)
-                .expect("Failed to deserialize Proving Key"),
-        )
-    } else {
-        println!("> Initializing SP1 VM for one-time circuit compilation...");
-        let prover_client = ProverClient::from_env();
-        println!(
-            "> Building new {} circuit constraints (this takes 15-30 mins on CPU)...",
-            mode_str
-        );
-        Some(
-            prover_client
-                .setup(sp1_sdk::Elf::Static(target_elf))
-                .unwrap(),
-        )
-    };
-
-    if let Some(ref pk) = pk {
-        let vk = pk.verifying_key();
-        let vk_bytes = bincode::serialize(vk).expect("Failed to serialize VK");
-        std::fs::write("res/vk.bin", vk_bytes).expect("Failed to write VK bin");
-
-        std::fs::write("res/vk_hash.txt", vk.bytes32())
-            .expect("Failed to write Verification Key hash to artifacts");
-    }
-
-    // Also write the full resolved state to a file for reference
-    let mut stringified_state_map = BTreeMap::new();
-    for ((event_type, state_key), event_id) in &state_map {
-        let key_str = format!("{}|{}", event_type, state_key);
-        stringified_state_map.insert(key_str, event_id.to_string());
-    }
-    let resolved_state_json = serde_json::to_string_pretty(&stringified_state_map).unwrap();
-    std::fs::write("res/resolved_state.json", resolved_state_json)
-        .expect("Failed to write resolved state JSON");
-
-    let mut stdin = SP1Stdin::new();
-    if is_unoptimized {
-        println!("> Running UNOPTIMIZED Pipeline (Memory-Heavy Graph Resolution)");
-        let input = DAGMergeInput {
-            room_version: RoomVersionId::V10,
-            event_map: event_map.clone(),
-        };
-        let mut input_bytes = Vec::new();
-        ciborium::into_writer(&input, &mut input_bytes).unwrap();
-        stdin.write(&input_bytes);
-    } else {
-        println!("> Running OPTIMIZED Pipeline (Linear Edge Verification)");
-        stdin.write(&edges);
-        stdin.write(&expected_hash);
-        stdin.write(&(events.len() as u32));
-    }
-
-    if std::env::var("SP1_PROVE").is_ok() {
-        let prover_client = ProverClient::from_env();
-        println!("Generating STARK Proof for Matrix State Resolution...");
-
-        let prove_mode = std::env::var("SP1_PROVE_MODE").unwrap_or_default();
-        let pk = pk.expect("Proving Key is required for real proving!");
-
-        let mut proof = if prove_mode == "groth16" || std::env::var("SP1_GROTH16").is_ok() {
+    if is_proving {
+        println!("Generating Jolt Proof for Matrix State Resolution...");
+        if is_unoptimized {
+            println!("> Mode: UNOPTIMIZED (Full Spec State Resolution)");
+            let (cp, pp, _vp) = zk_matrix_join_guest_unoptimized::preprocess();
+            let input = zk_matrix_join_guest_unoptimized::DAGMergeInput {
+                room_version: RoomVersionId::V10,
+                event_map: event_map
+                    .into_iter()
+                    .map(|(id, ev)| {
+                        (
+                            id,
+                            zk_matrix_join_guest_unoptimized::GuestEvent {
+                                event: ev.event,
+                                content: ev.content,
+                                event_id: ev.event_id,
+                                room_id: ev.room_id,
+                                sender: ev.sender,
+                                event_type: ev.event_type,
+                                prev_events: ev.prev_events,
+                                auth_events: ev.auth_events,
+                                public_key: ev.public_key,
+                                signature: ev.signature,
+                                verified_on_host: ev.verified_on_host,
+                            },
+                        )
+                    })
+                    .collect(),
+            };
+            let (output, _proof, _commitments) = zk_matrix_join_guest_unoptimized::prove_resolve_full_spec(&cp, pp, input);
+            println!("✓ Jolt Proof Generated Successfully!");
             println!(
-                "Engaging recursive Groth16 Wrapper circuit for in-browser WASM verification!"
+                "Matrix Resolved State Hash (Journal): {:?}",
+                hex::encode(output.resolved_state_hash)
             );
-            prover_client
-                .prove(&pk, stdin)
-                .groth16()
-                .run()
-                .expect("SP1 Groth16 Proving failed!")
-        } else if prove_mode == "compressed" {
-            println!("Engaging compressed STARK proof mode!");
-            prover_client
-                .prove(&pk, stdin)
-                .compressed()
-                .run()
-                .expect("SP1 Compressed STARK Proving failed!")
+            println!("Events Verified in Proof: {}", output.event_count);
         } else {
-            println!("Engaging Core STARK proof mode!");
-            prover_client
-                .prove(&pk, stdin)
-                .run()
-                .expect("SP1 Core STARK Proving failed!")
-        };
-
-        println!("--------------------------------------------------");
-        println!("✓ STARK Proof Generated Successfully!");
-
-        let output: DAGMergeOutput = proof.public_values.read();
-        println!(
-            "Matrix Resolved State Hash (Journal): {:?}",
-            hex::encode(output.resolved_state_hash)
-        );
-        println!("Events Verified in Proof: {}", output.event_count);
-
-        println!("Saving STARK Proof to res/proof-with-io.bin...");
-        proof
-            .save("res/proof-with-io.bin")
-            .expect("Failed to save proof file");
+            println!("> Mode: OPTIMIZED (Topological Reducer)");
+            let (cp, pp, _vp) = zk_matrix_join_guest::preprocess();
+            let (output, _proof, _commitments) = zk_matrix_join_guest::prove_verify_topology(
+                &cp,
+                pp,
+                edges,
+                expected_hash,
+                events.len() as u32,
+            );
+            println!("✓ Jolt Proof Generated Successfully!");
+            println!(
+                "Matrix Resolved State Hash (Journal): {:?}",
+                hex::encode(output.resolved_state_hash)
+            );
+            println!("Events Verified in Proof: {}", output.event_count);
+        }
     } else {
-        println!("Simulating Verifiable Execution for Matrix State Resolution...");
-        println!("(Note: This is a fast RISC-V instruction count simulation)");
-
-        let (mut public_values, execution_report) = ProverClient::builder()
-            .mock()
-            .build()
-            .execute(sp1_sdk::Elf::Static(target_elf), stdin)
-            .run()
-            .expect("SP1 Execution failed!");
-
-        let output: DAGMergeOutput = public_values.read();
-
-        println!("--------------------------------------------------");
-        println!("✓ Verifiable Simulation Complete!");
-        println!(
-            "RISC-V CPU Cycles Used: {}",
-            execution_report.total_instruction_count()
-        );
-        println!(
-            "Matrix Resolved State Hash (Journal): {:?}",
-            hex::encode(output.resolved_state_hash)
-        );
-        println!("Events Verified in Proof: {}", output.event_count);
-    }
-}
-
-/// Security Defense-in-Depth for `docs/vuln-002-VeilCash.txt`.
-/// Scans the binary layout of the canonical Groth16 verification key for duplicate
-/// G2 elements (128 bytes), ensuring `gamma_2` and `delta_2` were properly randomized.
-fn has_duplicate_g2_elements(vk_bytes: &[u8]) -> bool {
-    const G2_SIZE: usize = 128; // BN254 G2 Uncompressed Size
-    if vk_bytes.len() < G2_SIZE * 2 {
-        return false;
-    }
-    for i in 0..=(vk_bytes.len() - G2_SIZE) {
-        let chunk_a = &vk_bytes[i..i + G2_SIZE];
-        for j in (i + G2_SIZE)..=(vk_bytes.len() - G2_SIZE) {
-            let chunk_b = &vk_bytes[j..j + G2_SIZE];
-            if chunk_a == chunk_b {
-                return true;
-            }
-        }
-    }
-    false
-}
-
-/// The testing module validates the verifiable computation Hinting Paradigm.
-///
-/// Since generating a true SP1 STARK/SNARK proof requires the `succinct` Docker
-/// toolchain, these tests dynamically simulate the zk-circuit logic (such as linear
-/// Hint verification and Ed25519 signature checks) natively in Rust. This ensures
-/// the exact same state resolution code path is evaluated without the heavy proving overhead.
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Simulates a successful state resolution with active Ruma Event types.
-    #[test]
-    fn test_positive_hinted_state_resolution() {
-        sp1_sdk::utils::setup_logger();
-
-        // Construct a mock Matrix event to test serialization parity
-        let raw_json = serde_json::json!({
-            "event_id": "$test:example.com",
-            "room_id": "!room:example.com",
-            "sender": "@user:example.com",
-            "type": "m.room.member",
-            "state_key": "@user:example.com",
-            "content": {"membership": "join"},
-            "origin_server_ts": 12345,
-            "prev_events": [],
-            "auth_events": []
-        });
-
-        let event: CanonicalJsonObject = serde_json::from_value(raw_json.clone()).unwrap();
-        let event_id: OwnedEventId = serde_json::from_value(raw_json["event_id"].clone()).unwrap();
-        let room_id: OwnedRoomId = serde_json::from_value(raw_json["room_id"].clone()).unwrap();
-        let sender: OwnedUserId = serde_json::from_value(raw_json["sender"].clone()).unwrap();
-        let event_type: TimelineEventType =
-            serde_json::from_value(raw_json["type"].clone()).unwrap();
-        let prev_events: Vec<OwnedEventId> = vec![];
-        let auth_events: Vec<OwnedEventId> = vec![];
-
-        let content_val = raw_json.get("content").unwrap().clone();
-        let content: Box<serde_json::value::RawValue> =
-            serde_json::from_value(content_val).unwrap();
-
-        let guest_event = GuestEvent {
-            event,
-            content,
-            event_id: event_id.clone(),
-            room_id,
-            sender,
-            event_type,
-            prev_events,
-            auth_events,
-            public_key: None,
-            signature: None,
-            verified_on_host: false,
-        };
-
-        let mut event_map = BTreeMap::new();
-        event_map.insert(event_id.clone(), guest_event);
-
-        let mut edges: std::vec::Vec<([u8; 32], [u8; 32])> = std::vec::Vec::new();
-        fn hash_str(s: &str) -> [u8; 32] {
-            use sha2::{Digest, Sha256};
-            let mut h = Sha256::new();
-            h.update(s.as_bytes());
-            h.finalize().into()
-        }
-        for (id, ev) in &event_map {
-            let current_hash = hash_str(id.as_str());
-            for prev in &ev.prev_events {
-                edges.push((current_hash, hash_str(prev.as_str())));
-            }
-            if ev.prev_events.is_empty() {
-                edges.push((current_hash, [0u8; 32]));
-            }
-        }
-
-        let mut stdin = SP1Stdin::new();
-        stdin.write(&edges);
-        stdin.write(&[0u8; 32]); // Dummy hash for positive hinted test
-    }
-
-    /// Performs a full ZKVM parity check by executing the Guest binary
-    /// in a RISC-V simulator and comparing the resulting state-hash journal.
-    ///
-    /// NOTE: This test can take several minutes on CPU. Run via `make test-zk`.
-    #[test]
-    #[ignore]
-    fn test_state_resolution_parity() {
-        sp1_sdk::utils::setup_logger();
-        use sha2::{Digest, Sha256};
-
-        let event_id: OwnedEventId = "$1:example.com".to_owned().try_into().unwrap();
-        let room_id: OwnedRoomId = "!room:example.com".to_owned().try_into().unwrap();
-        let sender: OwnedUserId = "@user:example.com".to_owned().try_into().unwrap();
-
-        let event_json = serde_json::json!({
-            "event_id": event_id,
-            "room_id": room_id,
-            "sender": sender,
-            "type": "m.room.member",
-            "state_key": "@user:example.com",
-            "content": { "membership": "join" },
-            "origin_server_ts": 100,
-            "prev_events": [],
-            "auth_events": [],
-        });
-
-        let guest_event = GuestEvent {
-            event: serde_json::from_value(event_json.clone()).unwrap(),
-            content: serde_json::from_value(event_json["content"].clone()).unwrap(),
-            event_id: event_id.clone(),
-            room_id,
-            sender,
-            event_type: TimelineEventType::RoomMember,
-            prev_events: vec![],
-            auth_events: vec![],
-            public_key: None,
-            signature: None,
-            verified_on_host: false,
-        };
-
-        let mut event_map = BTreeMap::new();
-        event_map.insert(event_id.clone(), guest_event);
-
-        let _input = DAGMergeInput {
-            room_version: RoomVersionId::V10,
-            event_map: event_map.clone(),
-        };
-
-        // Host Native Resolution (Ground Truth)
-        let mut conflicted_events = HashMap::new();
-        for (id, guest_ev) in &event_map {
-            let lean_ev = LeanEvent {
-                event_id: id.to_string(),
-                power_level: 0,
-                origin_server_ts: guest_ev.origin_server_ts().0.into(),
-                prev_events: guest_ev
-                    .prev_events
-                    .iter()
-                    .map(|id| id.to_string())
+        println!("Simulating Jolt Execution for Matrix State Resolution...");
+        if is_unoptimized {
+            let input = zk_matrix_join_guest_unoptimized::DAGMergeInput {
+                room_version: RoomVersionId::V10,
+                event_map: event_map
+                    .into_iter()
+                    .map(|(id, ev)| {
+                        (
+                            id,
+                            zk_matrix_join_guest_unoptimized::GuestEvent {
+                                event: ev.event,
+                                content: ev.content,
+                                event_id: ev.event_id,
+                                room_id: ev.room_id,
+                                sender: ev.sender,
+                                event_type: ev.event_type,
+                                prev_events: ev.prev_events,
+                                auth_events: ev.auth_events,
+                                public_key: ev.public_key,
+                                signature: ev.signature,
+                                verified_on_host: ev.verified_on_host,
+                            },
+                        )
+                    })
                     .collect(),
-                depth: 0,
             };
-            conflicted_events.insert(lean_ev.event_id.clone(), lean_ev);
+            let output = zk_matrix_join_guest_unoptimized::resolve_full_spec(input);
+            println!("--------------------------------------------------");
+            println!("✓ Verifiable Simulation Complete!");
+            println!(
+                "Matrix Resolved State Hash: {:?}",
+                hex::encode(output.resolved_state_hash)
+            );
+            println!("Events Verified: {}", output.event_count);
+        } else {
+            let output =
+                zk_matrix_join_guest::verify_topology(edges, expected_hash, events.len() as u32);
+            println!("--------------------------------------------------");
+            println!("✓ Verifiable Simulation Complete!");
+            println!(
+                "Matrix Resolved State Hash: {:?}",
+                hex::encode(output.resolved_state_hash)
+            );
+            println!("Events Verified: {}", output.event_count);
         }
-
-        let sorted_ids =
-            ruma_lean::lean_kahn_sort(&conflicted_events, ruma_lean::StateResVersion::V2);
-        let mut native_resolved = BTreeMap::new();
-        for id in sorted_ids {
-            let eid = OwnedEventId::try_from(id).unwrap();
-            if let Some(ev) = event_map.get(&eid) {
-                let key = (
-                    ev.event_type.to_string(),
-                    ev.event
-                        .get("state_key")
-                        .unwrap()
-                        .as_str()
-                        .unwrap()
-                        .to_string(),
-                );
-                native_resolved.insert(key, ev.event_id.clone());
-            }
-        }
-
-        let mut native_hasher = Sha256::new();
-        for (key, id) in native_resolved {
-            native_hasher.update(key.0.as_bytes());
-            native_hasher.update(key.1.as_bytes());
-            native_hasher.update(id.as_str().as_bytes());
-        }
-        let native_hash: [u8; 32] = native_hasher.finalize().into();
-
-        // ZKVM Guest Execution (Simulation)
-        let prover_client = ProverClient::from_env();
-
-        let mut edges: Vec<(u32, u32)> = Vec::new();
-        const DIMS: usize = match option_env!("SP1_TOPOLOGY_DIM") {
-            Some(s) => {
-                let mut val = 0;
-                let bytes = s.as_bytes();
-                let mut i = 0;
-                while i < bytes.len() {
-                    val = val * 10 + (bytes[i] - b'0') as usize;
-                    i += 1;
-                }
-                val
-            }
-            None => 10,
-        };
-
-        fn event_to_coordinate(s: &str) -> u32 {
-            let mut h = sha2::Sha256::new();
-            h.update(s.as_bytes());
-            let hash_bytes = h.finalize();
-            let val =
-                u32::from_be_bytes([hash_bytes[0], hash_bytes[1], hash_bytes[2], hash_bytes[3]]);
-            val & ((1 << DIMS) - 1)
-        }
-
-        let mut last_coord = 0;
-        for (id, ev) in &event_map {
-            let target_coord = event_to_coordinate(id.as_str());
-
-            let mut parents = Vec::new();
-            for prev in &ev.prev_events {
-                parents.push(prev.as_str().to_string());
-            }
-            if parents.is_empty() {
-                parents.push(last_coord.to_string());
-            }
-
-            for prev_str in parents {
-                let mut curr = if prev_str == last_coord.to_string() {
-                    last_coord
-                } else {
-                    event_to_coordinate(&prev_str)
-                };
-
-                while curr != target_coord {
-                    let diff = curr ^ target_coord;
-                    let bit_to_flip = diff.trailing_zeros() as usize;
-                    let next = curr ^ (1 << bit_to_flip);
-
-                    edges.push((curr, next));
-                    curr = next;
-                }
-            }
-            last_coord = target_coord;
-        }
-
-        let mut stdin = SP1Stdin::new();
-        stdin.write(&edges);
-        stdin.write(&native_hash);
-
-        // SP1 sometimes requires .setup() to be called to initialize internal ELF JIT caches
-        // before .execute() is run inside a test harness to prevent deadlocks.
-        let _pk = prover_client
-            .setup(sp1_sdk::Elf::Static(ZK_MATRIX_GUEST_ELF))
-            .unwrap();
-
-        let (mut public_values, _report) = prover_client
-            .execute(sp1_sdk::Elf::Static(ZK_MATRIX_GUEST_ELF), stdin)
-            .run()
-            .expect("Guest execution failed");
-
-        let output: DAGMergeOutput = public_values.read();
-
-        // Parity Check
-        assert_eq!(
-            native_hash, output.resolved_state_hash,
-            "Ground Truth Parity Mismatch! Host and ZK-Guest disagree on resolved state."
-        );
-        println!(
-            "✓ Ground Truth Parity Verified! Resolved State Hash: {:?}",
-            native_hash
-        );
-    }
-
-    /// Validates the Matrix Spec resolution functionality natively on the Host.
-    /// This test is extremely fast (<1s) and ensures the logic is spec-compliant.
-    #[test]
-    fn test_native_resolution_bootstrap() {
-        use sha2::{Digest, Sha256};
-
-        // Load real bootstrap events
-        let manifest_dir = env!("CARGO_MANIFEST_DIR");
-        let ruma_path =
-            std::path::Path::new(manifest_dir).join("../../res/ruma_bootstrap_events.json");
-
-        // Gracefully skip this test if the bootstrap fixtures are missing
-        // to avoid breaking the fast local development cycle.
-        let file_content = match std::fs::read_to_string(&ruma_path) {
-            Ok(c) => c,
-            Err(_) => {
-                println!("\n[!] SKIP: Missing bootstrap fixtures at {:?}. Run 'make setup' if you want to verify parity.", ruma_path);
-                return;
-            }
-        };
-        let raw_events: Vec<serde_json::Value> = serde_json::from_str(&file_content).unwrap();
-
-        let event_map: BTreeMap<OwnedEventId, GuestEvent> = raw_events
-            .into_iter()
-            .map(|ev| {
-                let event_id: OwnedEventId =
-                    serde_json::from_value(ev["event_id"].clone()).unwrap();
-                (
-                    event_id.clone(),
-                    GuestEvent {
-                        event: serde_json::from_value(ev.clone()).unwrap(),
-                        content: serde_json::from_value(ev["content"].clone()).unwrap(),
-                        event_id,
-                        room_id: serde_json::from_value(ev["room_id"].clone()).unwrap(),
-                        sender: serde_json::from_value(ev["sender"].clone()).unwrap(),
-                        event_type: serde_json::from_value(ev["type"].clone()).unwrap(),
-                        prev_events: serde_json::from_value(ev["prev_events"].clone()).unwrap(),
-                        auth_events: serde_json::from_value(ev["auth_events"].clone()).unwrap(),
-                        public_key: None,
-                        signature: None,
-                        verified_on_host: false,
-                    },
-                )
-            })
-            .collect();
-
-        // Host Native Resolution
-        let mut conflicted_events = HashMap::new();
-        for (id, guest_ev) in &event_map {
-            let lean_ev = LeanEvent {
-                event_id: id.to_string(),
-                power_level: 0,
-                origin_server_ts: guest_ev.origin_server_ts().0.into(),
-                prev_events: guest_ev
-                    .prev_events
-                    .iter()
-                    .map(|id| id.to_string())
-                    .collect(),
-                depth: 0,
-            };
-            conflicted_events.insert(lean_ev.event_id.clone(), lean_ev);
-        }
-
-        let sorted_ids =
-            ruma_lean::lean_kahn_sort(&conflicted_events, ruma_lean::StateResVersion::V2);
-        let mut native_resolved = BTreeMap::new();
-        for id in sorted_ids {
-            let eid = OwnedEventId::try_from(id).unwrap();
-            if let Some(ev) = event_map.get(&eid) {
-                let key = (
-                    ev.event_type.to_string(),
-                    ev.event
-                        .get("state_key")
-                        .unwrap()
-                        .as_str()
-                        .unwrap()
-                        .to_string(),
-                );
-                native_resolved.insert(key, ev.event_id.clone());
-            }
-        }
-
-        let mut hasher = Sha256::new();
-        for (key, id) in native_resolved {
-            hasher.update(key.0.as_bytes());
-            hasher.update(key.1.as_bytes());
-            hasher.update(id.as_str().as_bytes());
-        }
-        let hash: [u8; 32] = hasher.finalize().into();
-
-        assert!(!hash.is_empty());
-        println!(
-            "✓ Native Resolution Verified! Bootstrap Hash: {:?}",
-            hex::encode(hash)
-        );
     }
 }

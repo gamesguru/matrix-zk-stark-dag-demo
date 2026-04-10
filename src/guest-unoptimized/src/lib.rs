@@ -12,53 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Mitigate SP1 zero-register memory manipulation vulnerability by strictly forbidding arbitrary pointer writes.
-// https://blog.lambdaclass.com/the-future-of-zk-is-in-risc-v-zkvms-but-the-industry-must-be-careful-how-succincts-sp1s-departure-from-standards-causes-bugs/
 #![forbid(unsafe_code)]
-#![no_main]
-sp1_zkvm::entrypoint!(main);
 
-use ruma_common::{CanonicalJsonObject, OwnedEventId, OwnedRoomId, OwnedUserId, RoomVersionId};
+use jolt_sdk as jolt;
+use ruma_common::{CanonicalJsonObject, OwnedEventId, RoomVersionId};
 use ruma_events::TimelineEventType;
 use ruma_lean::{lean_kahn_sort, HashMap, LeanEvent, StateResVersion};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-
-extern crate alloc;
-use alloc::boxed::Box;
-use alloc::collections::BTreeMap;
-use alloc::string::ToString;
-use alloc::vec::Vec;
-
-mod raw_value_as_string {
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
-    use serde_json::value::RawValue;
-
-    #[allow(clippy::borrowed_box)]
-    pub fn serialize<S>(value: &Box<RawValue>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        value.get().serialize(serializer)
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Box<RawValue>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        RawValue::from_string(s).map_err(serde::de::Error::custom)
-    }
-}
+use std::boxed::Box;
+use std::collections::BTreeMap;
+use std::string::ToString;
+use std::vec::Vec;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct GuestEvent {
     pub event: CanonicalJsonObject,
-    #[serde(with = "raw_value_as_string")]
     pub content: Box<serde_json::value::RawValue>,
     pub event_id: OwnedEventId,
-    pub room_id: OwnedRoomId,
-    pub sender: OwnedUserId,
+    pub room_id: ruma_common::OwnedRoomId,
+    pub sender: ruma_common::OwnedUserId,
     pub event_type: TimelineEventType,
     pub prev_events: Vec<OwnedEventId>,
     pub auth_events: Vec<OwnedEventId>,
@@ -89,24 +62,15 @@ pub struct DAGMergeOutput {
     pub event_count: u32,
 }
 
-pub fn main() {
-    // Read the input from the Host (the world-state hint containing events)
-    let input_bytes: Vec<u8> = sp1_zkvm::io::read();
-    let input: DAGMergeInput =
-        ciborium::from_reader(input_bytes.as_slice()).expect("Failed to deserialize CBOR input");
-
+#[jolt::provable]
+pub fn resolve_full_spec(input: DAGMergeInput) -> DAGMergeOutput {
     let event_count = input.event_map.len() as u32;
-
-    println!("cycle-count-start: resolution-initialization");
-
-    println!("cycle-count-start: ruma-state-resolution");
-    println!("> Resolving state maps using Lean implementation...");
 
     let mut conflicted_events = HashMap::new();
     for (id, guest_ev) in &input.event_map {
         // [Security] Verify Ed25519 signatures if keys are available
         if let (Some(_pk), Some(_sig)) = (&guest_ev.public_key, &guest_ev.signature) {
-            // Placeholder for SP1 Ed25519 verification
+            // Placeholder for Jolt Ed25519 verification
             if guest_ev.verified_on_host {
                 // Trust but verify
             }
@@ -145,27 +109,19 @@ pub fn main() {
         }
     }
 
-    println!("cycle-count-end: ruma-state-resolution");
-    println!("cycle-count-start: state-hashing");
-
     // Journal Commitment: Fingerprint the resolved state
     let mut hasher = Sha256::new();
 
-    for ((event_type, state_key), event_id) in resolved_state {
-        hasher.update(event_type.as_bytes());
-        hasher.update(state_key.as_bytes());
+    for (key, event_id) in resolved_state {
+        hasher.update(key.0.as_bytes());
+        hasher.update(key.1.as_bytes());
         hasher.update(event_id.as_str().as_bytes());
     }
 
     let expected_hash: [u8; 32] = hasher.finalize().into();
 
-    let output = DAGMergeOutput {
+    DAGMergeOutput {
         resolved_state_hash: expected_hash,
         event_count,
-    };
-
-    println!("cycle-count-end: state-hashing");
-    println!("✓ Guest Resolution Protocol Complete!");
-
-    sp1_zkvm::io::commit(&output);
+    }
 }
