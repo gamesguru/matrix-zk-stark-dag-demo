@@ -404,9 +404,9 @@ checksum = "37b2a672a2cb129a2e41c10b1224bb368f9f37a2b16b612598138befd7b37eb5"
 
 [[package]]
 name = "cc"
-version = "1.2.59"
+version = "1.2.60"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b7a4d3ec6524d28a329fc53654bbadc9bdd7b0431f5d65f1a56ffb28a1ee5283"
+checksum = "43c5703da9466b66a946814e1adf53ea2c90f10063b86290cc9eb67ce3478a20"
 dependencies = [
  "find-msvc-tools",
  "shlex",
@@ -2137,8 +2137,8 @@ checksum = "d3f2ad9f15a07f4a0e1677124f9120ce7e83ab7e1ca7186af0ca9da529b62e80"
 
 [[package]]
 name = "ruma-lean"
-version = "0.1.0"
-source = "git+https://github.com/gamesguru/ruma-lean.git#47750a6584d0c8b7034d0391719b4bfb8e5f4d83"
+version = "0.1.1"
+source = "git+https://github.com/gamesguru/ruma-lean.git#a891302a2f0a4cbe3758c8fdaab7eff9d282c72e"
 dependencies = [
  "base64",
  "ed25519-consensus",
