@@ -2195,6 +2195,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ruma-zk-wasm"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.2.17",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-test",
+ "web-time",
+]
+
+[[package]]
 name = "rustc-demangle"
 version = "0.1.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3598,18 +3610,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
-]
-
-[[package]]
-name = "zk-matrix-wasm"
-version = "0.1.0"
-dependencies = [
- "getrandom 0.2.17",
- "serde",
- "serde_json",
- "wasm-bindgen",
- "wasm-bindgen-test",
- "web-time",
 ]
 
 [[package]]

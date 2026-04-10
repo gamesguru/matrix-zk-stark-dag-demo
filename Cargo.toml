@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["ruma-zk", "ruma-zk/guest", "demo-unoptimized-guest", "src/wasm-client"]
+members = ["ruma-zk", "ruma-zk/guest", "demo-unoptimized-guest", "ruma-zk-wasm"]
 
 [workspace.package]
 version = "0.1.0"

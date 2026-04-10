@@ -1,5 +1,5 @@
 [package]
-name = "zk-matrix-wasm"
+name = "ruma-zk-wasm"
 version = "0.1.0"
 edition = "2021"
 description = "WebAssembly client for verifying ZK-Matrix-Join proofs trustlessly in the browser."

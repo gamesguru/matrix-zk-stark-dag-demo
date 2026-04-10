@@ -58,7 +58,7 @@ Built on **Jolt RV64IMAC**, allowing formally verified Rust libraries (`ruma-lea
 
 - **`src/host/` (The Prover):** Orchestrates state res and parallelizes the Jolt Prover.
 - **`src/guest/` (The zkVM):** Formally verified logic that runs inside Jolt, proving topological compliance and state transitions.
-- **`src/wasm-client/` (The Verifier):** Exposes proof verification to WebAssembly (Currently in Simulation mode).
+- **`ruma-zk-wasm/` (The Verifier):** Exposes proof verification to WebAssembly (Currently in Simulation mode).
 
 ## API Specification
 

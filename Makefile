@@ -61,7 +61,7 @@ verify: ##H Verify an existing Jolt STARK Proof
 .PHONY: wasm
 wasm: ##H Build the WebAssembly light-client Verifier
 	@echo "Compiling WASM bindings..."
-	cd src/wasm-client && wasm-pack build --target web
+	cd ruma-zk-wasm && wasm-pack build --target web
 
 .PHONY: web-demo
 web-demo: ##H Run a local web server to test the WASM UI
