@@ -19,14 +19,19 @@ build: ##H Build the Rust project
 	@echo "Building ZK-Matrix-Join"
 	$(CARGO) build --release
 
+.PHONY: install
+install: ##H Install the ruma-zk binary globally via cargo
+	@echo "Installing ruma-zk..."
+	$(CARGO) install --path ruma-zk --force
+
 .PHONY: demo
 demo: ##H Run the ZK-Matrix-Join Simulation (Demo)
-	@echo "Running ZK-Matrix-Join Demo"
+	@echo "Running ZK-Matrix-Join Demo..."
 	$(CARGO) run --release --bin ruma-zk -- demo
 
-.PHONY: benchmark-lite
-benchmark-lite: ##H Run Simulation with Tiny 5-Event Graph
-	@echo "Running ZK-Matrix-Join Benchmark (Lite)"
+.PHONY: demo-lite
+demo-lite: ##H Run Simulation with Tiny 5-Event Graph
+	@echo "Running ZK-Matrix-Join Demo (Lite)..."
 	$(CARGO) run --release --bin ruma-zk -- demo --input res/ruma_bootstrap_events.json
 
 .PHONY: benchmark-batch

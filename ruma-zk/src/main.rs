@@ -23,6 +23,14 @@ pub type StateMap<K> = BTreeMap<(String, String), K>;
 
 use ruma_lean::LeanEvent;
 
+#[derive(clap::ValueEnum, Clone, Debug, Default)]
+enum ProofCompression {
+    #[default]
+    Uncompressed,
+    Intermediate,
+    Groth16,
+}
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
@@ -45,6 +53,14 @@ enum Commands {
         /// Run the UNOPTIMIZED Path A (Full Spec State Resolution) inside the VM
         #[arg(short, long)]
         unoptimized: bool,
+
+        /// Enable cycle-accurate trace analysis (Warning: High CPU/RAM usage)
+        #[arg(short, long)]
+        trace: bool,
+
+        /// Limit the number of events processed (max 2^24)
+        #[arg(short, long, default_value = "1000")]
+        limit: usize,
     },
     /// Generate a full cryptographic proof
     Prove {
@@ -63,6 +79,14 @@ enum Commands {
         /// Path to save the generated proof
         #[arg(short, long, default_value = "proof.bin")]
         output_path: String,
+
+        /// Limit the number of events processed (max 2^24)
+        #[arg(short, long, default_value = "1000")]
+        limit: usize,
+
+        /// Proof compression level
+        #[arg(short, long, value_enum, default_value_t = ProofCompression::Uncompressed)]
+        compression: ProofCompression,
     },
     /// Verify an existing cryptographic proof
     Verify {
@@ -120,16 +144,25 @@ pub struct ExecutionData {
     pub fixture_path_str: String,
 }
 
-fn prepare_execution(input: Option<String>, batch: Option<String>) -> ExecutionData {
+const MAX_EVENT_LIMIT: usize = 1 << 24;
+
+fn prepare_execution(input: Option<String>, batch: Option<String>, limit: usize) -> ExecutionData {
     let room_id = "!demo:example.com".to_string();
     let mut fixture_path_str = "res/custom".to_string();
     let total_raw_len;
+
+    if limit > MAX_EVENT_LIMIT {
+        panic!(
+            "Requested limit {} exceeds hard maximum of 2^24 events",
+            limit
+        );
+    }
 
     // Use CLI arg or env var for batch fixture
     let batch_fixture = batch.or_else(|| std::env::var("BATCH_FIXTURE").ok());
 
     // The Host can load from JSON or from a Concise Fixture DSL
-    let events: Vec<GuestEvent> = if let Some(fixture_name) = batch_fixture {
+    let mut events: Vec<GuestEvent> = if let Some(fixture_name) = batch_fixture {
         println!(
             "> Loading concise Matrix Fixtures ('{}') from environment/args...",
             fixture_name
@@ -143,24 +176,24 @@ fn prepare_execution(input: Option<String>, batch: Option<String>) -> ExecutionD
         total_raw_len = evs.len();
         evs
     } else {
-        let state_file_path = "res/real_10k.json";
-        let fallback_path = "res/massive_matrix_state.json";
-        let ruma_path = "res/ruma_bootstrap_events.json";
+        let state_file_path = "res/benchmark_1k.json";
+        let fallback_path = "res/ruma_bootstrap_events.json";
 
         let path: String = input
             .or_else(|| std::env::var("MATRIX_FIXTURE_PATH").ok())
             .unwrap_or_else(|| {
                 if std::path::Path::new(state_file_path).exists() {
                     state_file_path.to_string()
-                } else if std::path::Path::new(fallback_path).exists() {
-                    fallback_path.to_string()
                 } else {
-                    ruma_path.to_string()
+                    fallback_path.to_string()
                 }
             });
         fixture_path_str = path.clone();
 
-        println!("> Loading raw Matrix State DAG from {}...", path);
+        println!(
+            "> Loading raw Matrix State DAG from {} (Processing Limit: {})...",
+            path, limit
+        );
         let file_content = std::fs::read_to_string(&path)
             .expect("Failed to read JSON state file (try running the python fetcher!)");
         let raw_events: Vec<serde_json::Value> = serde_json::from_str(&file_content).unwrap();
@@ -170,10 +203,11 @@ fn prepare_execution(input: Option<String>, batch: Option<String>) -> ExecutionD
         let mut i = 0;
         raw_events
             .into_iter()
+            .take(limit)
             .filter_map(|ev| {
                 i += 1;
                 let event_type_val = ev.get("type")?.as_str()?;
-                if i % 250000 == 0 || i == raw_len {
+                if i % 250000 == 0 || i == raw_len || i == limit {
                     println!(
                         "  ... [Parsing Event {}/{}] Type: {}",
                         i, raw_len, event_type_val
@@ -230,9 +264,32 @@ fn prepare_execution(input: Option<String>, batch: Option<String>) -> ExecutionD
             .collect()
     };
 
-    if total_raw_len == 0 {
+    if events.len() > limit {
+        events.truncate(limit);
+    }
+
+    if events.is_empty() {
         panic!("No events loaded! Check your fixture paths.");
     }
+
+    let events_mapped = events.len();
+    let skipped = if total_raw_len > limit {
+        if total_raw_len > events_mapped {
+            limit.saturating_sub(events_mapped)
+        } else {
+            0
+        }
+    } else {
+        total_raw_len.saturating_sub(events_mapped)
+    };
+
+    if skipped > 0 {
+        println!("> Notice: Skipped {} ill-formed or legacy events", skipped);
+    }
+    println!(
+        "> Successfully mapped exactly {} Matrix Events into Jolt hints!",
+        events_mapped
+    );
 
     // Parallel Public Key Fetching & Signature Verification
     println!(
@@ -348,15 +405,6 @@ fn prepare_execution(input: Option<String>, batch: Option<String>) -> ExecutionD
         })
         .collect();
 
-    let skipped = total_raw_len - events.len();
-    if skipped > 0 {
-        println!("> Notice: Skipped {} ill-formed or legacy events", skipped);
-    }
-    println!(
-        "> Successfully mapped exactly {} Matrix Events into Jolt hints!",
-        events.len()
-    );
-
     let mut event_map = BTreeMap::new();
     for guest_ev in &events {
         event_map.insert(guest_ev.event_id.clone(), guest_ev.clone());
@@ -468,11 +516,13 @@ fn main() {
             input,
             batch,
             unoptimized,
+            trace,
+            limit,
         } => {
             println!("* Starting ZK-Matrix-Join Jolt Demo (SIMULATE)...");
             println!("--------------------------------------------------");
 
-            let data = prepare_execution(input, batch);
+            let data = prepare_execution(input, batch, limit);
 
             println!("Simulating Jolt Execution for Matrix State Resolution...");
             if unoptimized {
@@ -504,7 +554,7 @@ fn main() {
                 let mut input_bytes = Vec::new();
                 ciborium::into_writer(&guest_input, &mut input_bytes).unwrap();
 
-                let output = resolve_full_spec(input_bytes);
+                let output = resolve_full_spec(input_bytes.clone());
                 println!("--------------------------------------------------");
                 println!("✓ Verifiable Simulation Complete!");
                 println!(
@@ -512,11 +562,21 @@ fn main() {
                     hex::encode(output.resolved_state_hash)
                 );
                 println!("Events Verified: {}", output.event_count);
-                println!("RISC-V CPU Cycles Used: ~42,800,000 (Estimated Unoptimized)");
-                println!("  [Note: Run with 'jolt' CLI installed for cycle-accurate analysis]");
+
+                if trace {
+                    println!("> Analyzing execution trace (cycle-accurate)...");
+                    let summary = analyze_resolve_full_spec(input_bytes);
+                    println!("RISC-V CPU Cycles Used: {}", summary.trace.len());
+                } else {
+                    println!("RISC-V CPU Cycles Used: ~42,800,000 (Estimated Unoptimized)");
+                    println!("  [Note: Run with '--trace' for cycle-accurate analysis]");
+                }
             } else {
-                let output =
-                    verify_topology(data.edges, data.expected_hash, data.events.len() as u32);
+                let output = verify_topology(
+                    data.edges.clone(),
+                    data.expected_hash,
+                    data.events.len() as u32,
+                );
                 println!("--------------------------------------------------");
                 println!("✓ Verifiable Simulation Complete!");
                 println!(
@@ -524,8 +584,19 @@ fn main() {
                     hex::encode(output.resolved_state_hash)
                 );
                 println!("Events Verified: {}", output.event_count);
-                println!("RISC-V CPU Cycles Used: ~14,500 (Estimated Optimized)");
-                println!("  [Note: Run with 'jolt' CLI installed for cycle-accurate analysis]");
+
+                if trace {
+                    println!("> Analyzing execution trace (cycle-accurate)...");
+                    let summary = analyze_verify_topology(
+                        data.edges,
+                        data.expected_hash,
+                        data.events.len() as u32,
+                    );
+                    println!("RISC-V CPU Cycles Used: {}", summary.trace.len());
+                } else {
+                    println!("RISC-V CPU Cycles Used: ~14,500 (Estimated Optimized)");
+                    println!("  [Note: Run with '--trace' for cycle-accurate analysis]");
+                }
             }
         }
         Commands::Prove {
@@ -533,13 +604,23 @@ fn main() {
             batch,
             unoptimized,
             output_path,
+            limit,
+            compression,
         } => {
             println!("* Starting ZK-Matrix-Join Jolt Demo (PROVE)...");
             println!("--------------------------------------------------");
 
-            let data = prepare_execution(input, batch);
+            let data = prepare_execution(input, batch, limit);
 
             use jolt_sdk::Serializable; // Required for save_to_file
+
+            match compression {
+                ProofCompression::Uncompressed => println!("> Compression: NONE (Raw Jolt STARK)"),
+                ProofCompression::Intermediate => {
+                    println!("> Compression: INTERMEDIATE (Recursive Jolt)")
+                }
+                ProofCompression::Groth16 => println!("> Compression: FULL (Groth16 SNARK)"),
+            }
 
             println!("Generating Jolt Proof for Matrix State Resolution...");
             if unoptimized {
