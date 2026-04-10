@@ -46,10 +46,6 @@ enum Commands {
         #[arg(short, long)]
         input: Option<String>,
 
-        /// Name of the concise batch fixture to load (e.g., 'demo')
-        #[arg(short, long)]
-        batch: Option<String>,
-
         /// Run the UNOPTIMIZED Path A (Full Spec State Resolution) inside the VM
         #[arg(short, long)]
         unoptimized: bool,
@@ -67,10 +63,6 @@ enum Commands {
         /// Path to the Matrix state JSON fixture
         #[arg(short, long)]
         input: Option<String>,
-
-        /// Name of the concise batch fixture to load (e.g., 'demo')
-        #[arg(short, long)]
-        batch: Option<String>,
 
         /// Run the UNOPTIMIZED Path A (Full Spec State Resolution) inside the VM
         #[arg(short, long)]
@@ -130,8 +122,6 @@ pub struct DAGMergeOutput {
     pub event_count: u32,
 }
 
-mod fixtures;
-
 use ruma_zk_guest::*;
 use ruma_zk_guest_unoptimized::*;
 
@@ -146,11 +136,7 @@ pub struct ExecutionData {
 
 const MAX_EVENT_LIMIT: usize = 1 << 24;
 
-fn prepare_execution(input: Option<String>, batch: Option<String>, limit: usize) -> ExecutionData {
-    let room_id = "!demo:example.com".to_string();
-    let mut fixture_path_str = "res/custom".to_string();
-    let total_raw_len;
-
+fn prepare_execution(input: Option<String>, limit: usize) -> ExecutionData {
     if limit > MAX_EVENT_LIMIT {
         panic!(
             "Requested limit {} exceeds hard maximum of 2^24 events",
@@ -158,102 +144,83 @@ fn prepare_execution(input: Option<String>, batch: Option<String>, limit: usize)
         );
     }
 
-    // Use CLI arg or env var for batch fixture
-    let batch_fixture = batch.or_else(|| std::env::var("BATCH_FIXTURE").ok());
+    let path: String = input
+        .or_else(|| std::env::var("MATRIX_FIXTURE_PATH").ok())
+        .expect("No Matrix fixture path provided. Use --input <PATH> or set the MATRIX_FIXTURE_PATH environment variable.");
+    let fixture_path_str = path.clone();
 
-    // The Host can load from JSON or from a Concise Fixture DSL
-    let mut events: Vec<GuestEvent> = if let Some(fixture_name) = batch_fixture {
-        println!(
-            "> Loading concise Matrix Fixtures ('{}') from environment/args...",
-            fixture_name
-        );
-        let rows: &[fixtures::FixtureRow] = &[
-            ("Alice", 100, 10, 1, &[], "alice"),
-            ("Bob", 50, 20, 2, &["0"], "bob"),
-            ("Charlie", 100, 15, 2, &["0"], "charlie"),
-        ];
-        let evs = fixtures::parse_fixture_rows(&room_id, rows);
-        total_raw_len = evs.len();
-        evs
-    } else {
-        let path: String = input
-            .or_else(|| std::env::var("MATRIX_FIXTURE_PATH").ok())
-            .expect("No Matrix fixture path provided. Use --input <PATH> or set the MATRIX_FIXTURE_PATH environment variable.");
-        fixture_path_str = path.clone();
+    println!(
+        "> Loading raw Matrix State DAG from {} (Processing Limit: {})...",
+        path, limit
+    );
+    let file_content = std::fs::read_to_string(&path)
+        .expect("Failed to read JSON state file (try running the python fetcher!)");
+    let raw_events: Vec<serde_json::Value> = serde_json::from_str(&file_content).unwrap();
 
-        println!(
-            "> Loading raw Matrix State DAG from {} (Processing Limit: {})...",
-            path, limit
-        );
-        let file_content = std::fs::read_to_string(&path)
-            .expect("Failed to read JSON state file (try running the python fetcher!)");
-        let raw_events: Vec<serde_json::Value> = serde_json::from_str(&file_content).unwrap();
+    let raw_len = raw_events.len();
+    let total_raw_len = raw_len;
+    let mut i = 0;
+    let mut events: Vec<GuestEvent> = raw_events
+        .into_iter()
+        .take(limit)
+        .filter_map(|ev| {
+            i += 1;
+            let event_type_val = ev.get("type")?.as_str()?;
+            if i % 250000 == 0 || i == raw_len || i == limit {
+                println!(
+                    "  ... [Parsing Event {}/{}] Type: {}",
+                    i, raw_len, event_type_val
+                );
+            }
 
-        let raw_len = raw_events.len();
-        total_raw_len = raw_len;
-        let mut i = 0;
-        raw_events
-            .into_iter()
-            .take(limit)
-            .filter_map(|ev| {
-                i += 1;
-                let event_type_val = ev.get("type")?.as_str()?;
-                if i % 250000 == 0 || i == raw_len || i == limit {
-                    println!(
-                        "  ... [Parsing Event {}/{}] Type: {}",
-                        i, raw_len, event_type_val
-                    );
-                }
+            let event = match ev.as_object() {
+                Some(x) => x.clone(),
+                None => return None,
+            };
+            let content = ev
+                .get("content")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
+            let event_id = ev.get("event_id")?.as_str()?.to_string();
+            let room_id = ev.get("room_id")?.as_str()?.to_string();
+            let sender = ev.get("sender")?.as_str()?.to_string();
+            let event_type = ev.get("type")?.as_str()?.to_string();
 
-                let event = match ev.as_object() {
-                    Some(x) => x.clone(),
-                    None => return None,
-                };
-                let content = ev
-                    .get("content")
-                    .cloned()
-                    .unwrap_or(serde_json::Value::Null);
-                let event_id = ev.get("event_id")?.as_str()?.to_string();
-                let room_id = ev.get("room_id")?.as_str()?.to_string();
-                let sender = ev.get("sender")?.as_str()?.to_string();
-                let event_type = ev.get("type")?.as_str()?.to_string();
-
-                let prev_events: Vec<String> = ev
-                    .get("prev_events")
-                    .and_then(|v| v.as_array())
-                    .map(|a| {
-                        a.iter()
-                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-
-                let auth_events: Vec<String> = ev
-                    .get("auth_events")
-                    .and_then(|v| v.as_array())
-                    .map(|a| {
-                        a.iter()
-                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-
-                Some(GuestEvent {
-                    event,
-                    content,
-                    event_id,
-                    room_id,
-                    sender,
-                    event_type,
-                    prev_events,
-                    auth_events,
-                    public_key: None,
-                    signature: None,
-                    verified_on_host: false,
+            let prev_events: Vec<String> = ev
+                .get("prev_events")
+                .and_then(|v| v.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect()
                 })
+                .unwrap_or_default();
+
+            let auth_events: Vec<String> = ev
+                .get("auth_events")
+                .and_then(|v| v.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            Some(GuestEvent {
+                event,
+                content,
+                event_id,
+                room_id,
+                sender,
+                event_type,
+                prev_events,
+                auth_events,
+                public_key: None,
+                signature: None,
+                verified_on_host: false,
             })
-            .collect()
-    };
+        })
+        .collect();
 
     if events.len() > limit {
         events.truncate(limit);
@@ -505,7 +472,6 @@ fn main() {
     match args.command {
         Commands::Demo {
             input,
-            batch,
             unoptimized,
             trace,
             limit,
@@ -513,7 +479,7 @@ fn main() {
             println!("* Starting ZK-Matrix-Join Jolt Demo (SIMULATE)...");
             println!("--------------------------------------------------");
 
-            let data = prepare_execution(input, batch, limit);
+            let data = prepare_execution(input, limit);
 
             println!("Simulating Jolt Execution for Matrix State Resolution...");
             if unoptimized {
@@ -592,7 +558,6 @@ fn main() {
         }
         Commands::Prove {
             input,
-            batch,
             unoptimized,
             output_path,
             limit,
@@ -601,7 +566,7 @@ fn main() {
             println!("* Starting ZK-Matrix-Join Jolt Demo (PROVE)...");
             println!("--------------------------------------------------");
 
-            let data = prepare_execution(input, batch, limit);
+            let data = prepare_execution(input, limit);
 
             use jolt_sdk::Serializable; // Required for save_to_file
 

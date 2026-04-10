@@ -34,11 +34,6 @@ demo-lite: ##H Run Simulation with Tiny 5-Event Graph
 	@echo "Running ZK-Matrix-Join Demo (Lite)..."
 	$(CARGO) run --release --bin ruma-zk -- demo --input res/ruma_bootstrap_events.json
 
-.PHONY: benchmark-batch
-benchmark-batch: ##H Run Simulation with Concise DSL Fixtures
-	@echo "Running ZK-Matrix-Join Benchmark (Batch DSL)"
-	$(CARGO) run --release --bin ruma-zk -- demo --batch demo
-
 .PHONY: prove
 prove: ##H Generate full Jolt STARK Proof
 	@echo "Generating Jolt STARK Proof"
@@ -77,7 +72,7 @@ web-demo: ##H Run a local web server to test the WASM UI
 test: ##H Run fast Native Resolution tests (<1s)
 	@echo "Running Fast Native Tests"
 	$(CARGO) test -p ruma-zk -- --nocapture
-	@echo "Running ruma-lean formal parity tests"
+	@echo "Running ruma-lean formal parity tests..."
 	$(CARGO) test -p ruma-lean
 
 .PHONY: test-zk
