@@ -1,6 +1,6 @@
 SHELL=/bin/bash
 
-# Variables
+# --- Variables ---
 CARGO = cargo
 PYTHON = python3
 
@@ -9,10 +9,20 @@ ifneq (,$(wildcard ./.env))
     include .env
 endif
 
+# Clean quotes from variables
+MATRIX_TOKEN := $(subst ",,$(subst ',,$(MATRIX_TOKEN)))
+MATRIX_HOMESERVER := $(subst ",,$(subst ',,$(MATRIX_HOMESERVER)))
+MATRIX_ROOM_ID := $(subst ",,$(subst ',,$(MATRIX_ROOM_ID)))
+
+export RUST_BACKTRACE ?= 1
+export
+
 .DEFAULT_GOAL := help
 
-.PHONY: all
-all: build setup format lint test ##H Build, setup data, format, lint, and run tests
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Build & main targets
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .PHONY: build
 build: ##H Build the Rust project
@@ -24,62 +34,8 @@ install: ##H Install the ruma-zk binary globally via cargo
 	@echo "Installing ruma-zk..."
 	$(CARGO) install --path . --force
 
-.PHONY: demo
-demo: ##H Run the ZK-Matrix-Join Simulation (Demo)
-	@echo "Running ZK-Matrix-Join Demo..."
-	$(CARGO) run --release -- demo --input res/benchmark_1k.json
-
-.PHONY: demo-lite
-demo-lite: ##H Run Simulation with Tiny 5-Event Graph
-	@echo "Running ZK-Matrix-Join Demo (Lite)..."
-	$(CARGO) run --release -- demo --input res/ruma_bootstrap_events.json
-
-.PHONY: prove
-prove: ##H Generate full Jolt STARK Proof
-	@echo "Generating Jolt STARK Proof"
-	RUST_LOG=info $(CARGO) run --release -- prove --input res/benchmark_1k.json
-
-.PHONY: verify
-verify: ##H Verify an existing Jolt STARK Proof
-	@echo "Verifying Jolt STARK Proof"
-	$(CARGO) run --release -- verify
-
-.PHONY: publish
-publish: ##H Preview package file list and simulate a dry-run publish for ruma-zk
-	@echo "Previewing packaged files for ruma-zk"
-	@echo "-----------------------------------"
-	$(CARGO) package --list --allow-dirty
-	@echo ""
-	@echo "Simulating publish for ruma-zk (--dry-run)"
-	@echo "-----------------------------------"
-	$(CARGO) publish --dry-run --allow-dirty
-
-.PHONY: wasm
-wasm: ##H Build the WebAssembly light-client Verifier
-	@echo "Compiling WASM bindings"
-	cd ruma-zk-wasm && wasm-pack build --target web
-
-.PHONY: web-demo
-web-demo: ##H Run a local web server to test the WASM UI
-	@echo "================================================================"
-	@echo " ZK-Matrix WebAssembly Server is starting!"
-	@echo " Please manually open your web browser to:"
-	@echo " http://localhost:8080/demo/index.html"
-	@echo "================================================================"
-	python3 -m http.server 8080
-
-.PHONY: test
-test: ##H Run fast Native Resolution tests (<1s)
-	$(CARGO) test -p ruma-zk -- --nocapture
-	$(CARGO) test -p ruma-lean -- --nocapture
-
-.PHONY: test-zk
-test-zk: ##H Run the full Jolt Parity Simulation
-	@echo "Running Deep Jolt Parity Simulation"
-	RUST_LOG=info RAYON_NUM_THREADS=1 $(CARGO) test --release -p ruma-zk -- --ignored --nocapture
-
 .PHONY: setup
-setup: ##H Combined: Fetch real Matrix data and Ruma state resolution fixtures
+setup: ##H Fetch real Matrix data and Ruma state resolution fixtures
 	@echo "Setting up project data and fixtures"
 	@if [ -n "$$MATRIX_TOKEN" ]; then \
 		echo "Fetching real Matrix state data from $$MATRIX_HOMESERVER"; \
@@ -89,48 +45,46 @@ setup: ##H Combined: Fetch real Matrix data and Ruma state resolution fixtures
 	fi
 	@echo "Ruma State Res test fixtures are checked in to res/"
 
-.PHONY: cpu-info
-cpu-info: ##H Print CPU info relevant to native target-cpu
-	@echo "=== CPU Model ==="
-	@grep -m1 'model name' /proc/cpuinfo 2>/dev/null || sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "unknown"
-	@echo "=== Architecture ==="
-	@uname -a
-	@echo "=== rustc Host Target ==="
-	@rustc -vV | grep host
-	@echo "=== rustc Native CPU ==="
-	@rustc --print=cfg -C target-cpu=native 2>/dev/null | grep target_feature | sort
-	@echo "=== CPU Flags [from /proc/cpuinfo] ==="
-	@grep -m1 'flags' /proc/cpuinfo 2>/dev/null | tr ' ' '\n' | grep -E 'avx|sse|aes|bmi|fma|popcnt|lzcnt|sha|pclmul' | sort
-	@echo "=== GCC Version ==="
-	@gcc --version | head -n 1 || true
-	@echo "=== GNU Make Header ==="
-	@make --version | head -n 1 || true
-	@echo "=== Python Version ==="
-	@python3 --version || true
-	@echo "=== Rust Toolchains ==="
-	@rustup show || true
-	@echo "=== Jolt VM Toolchain ==="
-	@cargo jolt --version 2>/dev/null || echo "Jolt CLI not found"
+.PHONY: clean
+clean: ##H Clean up cache and temporary files
+	@echo "Cleaning up"
+	find . -name .mypy_cache -exec rm -rf {} +;
+	find . -name .ruff_cache -exec rm -rf {} +;
+	find . -name .pytest_cache -exec rm -rf {} +;
+	rm -rf .tmp/coverage
+# 	$(CARGO) clean
 
 
-LINT_LOCS_PY ?= $(shell git ls-files '*.py')
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Testing
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.PHONY: format
-format: ##H Format the Rust and Python codebase
-	-pre-commit run --all-files
-	# Other formatters (python, json, etc)
-	-isort $(LINT_LOCS_PY)
-	-black $(LINT_LOCS_PY)
-	-prettier -w .
+.PHONY: test
+test: ##H Run fast Native Resolution tests (<1s)
+	$(CARGO) test -p ruma-zk -- --nocapture
+	$(CARGO) test -p ruma-lean -- --nocapture
+
+.PHONY: test-full
+test-full: ##H Run the full Jolt Parity Simulation (Slow)
+	@echo "Running Deep Jolt Parity Simulation"
+	RUST_LOG=info RAYON_NUM_THREADS=1 $(CARGO) test --release -p ruma-zk -- --ignored --nocapture
 
 .PHONY: lint
-lint: ##H Run clippy to lint the codebase and check compilation
+lint: ##H Run clippy to lint the codebase
 	$(CARGO) check
 	$(CARGO) clippy --all-targets --all-features -- -D warnings
 	@if [ -n "$(VERBOSE)" ]; then \
 		echo "Running ZK Security Scanner (vuln-002-VeilCash)"; \
 		python3 scripts/detect_vuln_002.py; \
 	fi
+
+LINT_LOCS_PY ?= $(shell git ls-files '*.py')
+.PHONY: format
+format: ##H Format the Rust and Python codebase
+	-pre-commit run --all-files
+	-isort $(LINT_LOCS_PY)
+	-black $(LINT_LOCS_PY)
+	-prettier -w .
 
 .PHONY: coverage
 coverage: ##H Run workspace code coverage and generate HTML report
@@ -142,38 +96,71 @@ coverage: ##H Run workspace code coverage and generate HTML report
 		--ignore-tests \
 		--skip-clean
 
-.PHONY: coverage-lean
-coverage-lean: ##H Run focused code coverage for the ruma-lean library
-	@echo "Running focused code coverage for ruma-lean"
-	$(CARGO) tarpaulin -p ruma-lean --out Html \
-		--output-dir .tmp/coverage-lean \
-		--exclude-files "src/*" "**/target/*" \
-		--ignore-panics \
-		--ignore-tests \
-		--skip-clean
-
-.PHONY: clean
-clean: ##H Clean up cache and optionally build artifacts
-	@echo "Cleaning up"
-	find . -name .mypy_cache -exec rm -rf {} +;
-	find . -name .ruff_cache -exec rm -rf {} +;
-	find . -name .pytest_cache -exec rm -rf {} +;
-	rm -rf .tmp/coverage .tmp/coverage-lean
-# 	$(CARGO) clean
 
 
-# Clean quotes from variables to avoid "makefile things"
-MATRIX_TOKEN := $(subst ",,$(subst ',,$(MATRIX_TOKEN)))
-MATRIX_HOMESERVER := $(subst ",,$(subst ',,$(MATRIX_HOMESERVER)))
-MATRIX_ROOM_ID := $(subst ",,$(subst ',,$(MATRIX_ROOM_ID)))
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Demos & proving
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-export RUST_BACKTRACE ?= 1
-export
+DEMO_INPUT ?= res/benchmark_1k.json
+ifeq ($(TYPE),lite)
+	DEMO_INPUT = res/ruma_bootstrap_events.json
+endif
 
-STYLE_CYAN := \033[36m
-STYLE_RESET := \033[0m
+.PHONY: demo
+demo: ##H Run the CLI Simulation (TYPE=lite for 5-event graph)
+	@echo "Running ZK-Matrix-Join Demo (Input: $(DEMO_INPUT))..."
+	$(CARGO) run --release -- demo --input $(DEMO_INPUT)
 
-# Messes up vim/sublime syntax highlighting, so it's at the end!
+.PHONY: wasm
+wasm: ##H Build the WebAssembly light-client Verifier
+	@echo "Compiling WASM bindings"
+	cd ruma-zk-wasm && wasm-pack build --target web
+
+.PHONY: web-demo
+web-demo: wasm ##H Run local web server to test WASM UI (Depends on wasm)
+	@echo "================================================================"
+	@echo " ZK-Matrix WebAssembly Server is starting!"
+	@echo " http://localhost:8080/demo/index.html"
+	@echo "================================================================"
+	python3 -m http.server 8080
+
+.PHONY: prove
+prove: ##H Generate full Jolt STARK Proof
+	@echo "Generating Jolt STARK Proof"
+	RUST_LOG=info $(CARGO) run --release -- prove --input res/benchmark_1k.json
+
+.PHONY: verify
+verify: ##H Verify an existing Jolt STARK Proof
+	@echo "Verifying Jolt STARK Proof"
+	$(CARGO) run --release -- verify
+
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# System & publishing
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.PHONY: publish
+publish: ##H Preview package file list and dry-run publish
+	@echo "Previewing packaged files..."
+	$(CARGO) package --list --allow-dirty
+	@echo "Simulating publish..."
+	$(CARGO) publish --dry-run --allow-dirty
+
+.PHONY: cpu-info
+cpu-info: ##H Print hardware info relevant to native targets
+	@echo "=== CPU Model ==="
+	@grep -m1 'model name' /proc/cpuinfo 2>/dev/null || sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "unknown"
+	@echo "=== rustc Native CPU ==="
+	@rustc --print=cfg -C target-cpu=native 2>/dev/null | grep target_feature | sort
+	@echo "=== Jolt VM Toolchain ==="
+	@cargo jolt --version 2>/dev/null || echo "Jolt CLI not found"
+
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Help
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 .PHONY: help
 help: ##H Show this help, list available targets
 	@grep -hE '^[a-zA-Z0-9_\/-]+:.*?##H .*$$' $(MAKEFILE_LIST) \

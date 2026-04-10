@@ -60,6 +60,46 @@ Built on **Jolt RV64IMAC**, allowing formally verified Rust libraries (`ruma-lea
 - **`ruma_zk_guest/` (The zkVM):** Formally verified logic that runs inside Jolt, proving topological compliance and state transitions.
 - **`ruma-zk-wasm/` (The Verifier):** Exposes proof verification to WebAssembly.
 
+## Proof Tiers
+
+We support three levels of proof compression to balance proving time vs. verification cost:
+
+1.  **Raw STARK (Uncompressed):** The native Jolt output. Fastest to generate (~seconds), large size (~MBs). Ideal for server-to-server synchronization where bandwidth is cheap.
+2.  **Recursive STARK (Intermediate):** Jolt proofs wrapped in themselves. Medium size, optimized for mobile clients and high-performance verifiers.
+3.  **Groth16 SNARK (Compressed):** The "Gold Standard" for edge-verification. Smallest size (~200 bytes), can be verified on-chain (EVM) or in standard browsers via WASM in milliseconds.
+
+## API Specification (Proposed)
+
+We propose new endpoints to securely retrieve these ZK rollups.
+
+### 1. Retrieve Proof (`GET /zk_state_proof`)
+
+Retrieves the trustless state checkpoint for a room.
+
+**Parameters:**
+
+- `compression`: One of `uncompressed`, `intermediate`, or `groth16`.
+
+```http
+GET /_matrix/federation/v1/zk_state_proof/!room:example.com?compression=groth16
+Authorization: X-Matrix origin="joining.server",key="...",sig="..."
+```
+
+**Example Response:**
+
+```json
+{
+  "room_version": "12",
+  "proof_type": "groth16",
+  "checkpoint": {
+    "event_id": "$historic_cutoff",
+    "resolved_state_root_hash": "<sha256_hash>",
+    "zk_proof": "<base64_encoded_snark_proof>",
+    "program_vkey": "<jolt_vkey_hash>"
+  }
+}
+```
+
 ## CLI Usage
 
 The primary interface is the `ruma-zk` binary.
@@ -85,11 +125,20 @@ cargo run --release --bin ruma-zk -- [COMMAND]
 
 ### Options:
 
-- `-i, --input <PATH>`: Path to the Matrix state JSON fixture.
+- `-i, --input <PATH>`: Path to the Matrix state JSON fixture. Use `-` to read from stdin.
 - `-l, --limit <N>`: Limit the number of events processed (default: 1000, max: 2^24).
 - `-u, --unoptimized`: Run the full Matrix Spec State Res v2 instead of the Optimized Topological Reducer.
 - `-c, --compression <LEVEL>`: Proof compression (uncompressed, intermediate, groth16).
 - `--trace`: Enable cycle-accurate trace analysis during simulation (Warning: High CPU/RAM).
+
+## Deployment
+
+To integrate `ruma-zk` with production Matrix servers like **Synapse** or **Continuwuity**, you can bridge the CLI to a network interface using NGINX.
+
+See the [Deployment Guide](docs/deployment-guides.md) for templates on:
+
+- **Method 1: `fcgiwrap`** (Lowest overhead, UNIX-native)
+- **Method 2: Python HTTP Wrapper** (Recommended for pure JSON piping)
 
 ## Security & Memory Safety
 
