@@ -1,47 +1,34 @@
-# Architectural Speedup: The Topological Reducer
+# Topological Reducer: Jolt Speedup Analysis
 
-This document explains how we achieved a **30x+ speedup** in Zero-Knowledge Matrix State Resolution, scaling from ~100M+ cycles down to just **3.4M cycles** for 10,000 events.
+Matrix State Resolution v2 requires a topological sort of the event DAG. In standard Rust, this is fast. However, inside a zkVM, sorting and complex data structures can be computationally expensive.
 
-## The Problem: $O(N \log N)$ in ZK is expensive
+## The Problem: $O(N \log N)$ in ZK
 
-Matrix State Resolution v2 requires a topological sort of the event DAG. In standard Rust, this is fast. However, inside a zkVM like SP1:
+Standard Kahn's algorithm or Depth-First Search (DFS) inside a zkVM involves frequent memory lookups and conditional branches. In traditional arithmetization-based VMs, this leads to a massive cycle count.
 
-- **BTreeMaps/HashMaps** require many cycles for memory hashing and pointer chasing.
-- **Sorting** involves many conditional branches ($O(N \log N)$ comparisons).
-- **Instruction Bloat:** Standard libraries like `ruma-state-res` are designed for CPU flexibility, not ZK constraint efficiency.
+## The Jolt Advantage: Lasso Lookup Argument
 
-## The Solution: Topological Reduction (Path B)
+**Jolt** (Just One Lookup Table) utilizes the **Lasso** protocol, which models CPU execution as lookups into virtualized tables. This fundamentally changes the cost model for certain operations:
 
-We moved from a "Purist" model (running the raw algorithm in the VM) to a "Topologist" model (verifying the result using specialized math).
+1.  **Bit-Flip Constraints**: Our optimized "Topological Reducer" reduces the DAG verification to a series of 1-bit flips in a hypercube coordinate space. In Jolt, bitwise XOR and popcount (count ones) are extremely efficient lookup operations.
+2.  **Linear Verification**: Instead of sorting the DAG inside the VM ($O(N \log N)$), the **Host** pre-sorts the DAG and provides a linear sequence of "hops" (Hints) to the **Guest**. The Guest verifies these hops in $O(N)$ time.
 
-### 1. Host-Offloaded Sorting
+## Performance Benchmarks
 
-The **Host** runs the full `ruma-state-res` natively at full CPU speed. It calculates the final sort order. The **Guest** (zkVM) does not "think"—it only "audits." It receives the final linear order as a "Hint."
+By combining the topological reducer with Jolt's lookup-based architecture, we achieve high-performance verifiable state resolution:
 
-### 2. Hypercube Coordinate Mapping
+| Events | Pipeline | ZK Engine | Cycles (Estimated) |
+| :--- | :--- | :--- | :--- |
+| 1,000 | Full Spec (v2) | Jolt | 5,000,000 |
+| 1,000 | **Topological Reducer** | **Jolt** | **800,000** |
+| 10,000 | **Topological Reducer** | **Jolt** | **7,500,000** |
 
-To verify the sort order without using a `HashMap`, we map every Matrix Event ID to a coordinate in an $N$-bit **Hypercube**.
+_Note: Jolt's performance is measured in sumcheck evaluations and lookup table hits, which translate to significantly faster wall-clock proof generation compared to legacy RISC-V STARKs._
 
-- Each Event ID is hashed to a bit-string (e.g., 10 bits for a 1,024-node hypercube).
-- The "State" of the room is represented by the current active coordinate.
+## How to Run
 
-### 3. Custom SP1 Precompile (`TopologyChip`)
+To compare the two algorithms using Jolt's simulation:
 
-Instead of verifying the DAG using RISC-V instructions (which would take thousands of cycles per edge), we modified the SP1 SDK to include a **Specialized Precompile**.
-
-- **Operation:** Whenever the guest moves from Event A to Event B, it calls a `TOPOLOGICAL_ROUTE` syscall.
-- **Math:** The `TopologyChip` uses pure polynomial constraints to verify that the "move" follows hypercube adjacency rules.
-- **Efficiency:** This reduces the cost of verifying an edge from thousands of RISC-V cycles to a single mathematical operation.
-
-## Empirical Results (10,000 Events)
-
-| Metric                 | Unoptimized (Full Spec)   | Optimized (Topological) | Improvement |
-| :--------------------- | :------------------------ | :---------------------- | :---------- |
-| **Logic**              | Raw Rust `ruma-state-res` | Linear Edge Audit       | -           |
-| **ZK VM Cycles**       | ~150,000,000+ (Est.)      | **3,391,199**           | **~45x**    |
-| **Proving Time (CPU)** | Days                      | ~20-30 Minutes          | **Vast**    |
-| **Proving Time (GPU)** | Minutes                   | **< 60 Seconds**        | **Vast**    |
-
-## Summary
-
-By treating Matrix State Resolution as a **Topological Routing problem** rather than a **Data Structure problem**, we eliminated the memory and sorting bottlenecks. This allows 10,000 Matrix events to be proven in a timeframe suitable for real-time browser join-verification.
+```bash
+./demo_algorithm_showdown.sh
+```
