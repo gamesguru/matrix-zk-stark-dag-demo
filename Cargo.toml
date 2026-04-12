@@ -28,6 +28,7 @@ base64 = { version = "=0.21.7", default-features = false }
 [workspace]
 resolver = "2"
 members = [
+    "ctopology",
     "ruma_zk_witness",
     "ruma-zk-wasm",
 ]

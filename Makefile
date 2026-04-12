@@ -1,187 +1,71 @@
 SHELL=/bin/bash
-.DEFAULT_GOAL := help
+.DEFAULT_GOAL=_help
 
-CARGO ?= cargo
-PYTHON ?= python3
-
-# Load environment variables from .env file if it exists
-ifneq (,$(wildcard ./.env))
-    include .env
-endif
+LAKE ?= ~/.elan/bin/lake
 
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# 1. ZK-Matrix Proof Workflow
+# Init and format
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-DEMO_INPUT ?= res/benchmark_1k.json
-ifeq ($(TYPE),lite)
-	DEMO_INPUT = res/ruma_bootstrap_events.json
-endif
-
-.PHONY: prove
-prove: ##H Generate full Jolt STARK Proof (Hybrid Priority)
-	@echo "Generating Jolt STARK Proof"
-	RUST_LOG=info $(CARGO) run --release -- prove --input $(DEMO_INPUT)
-
-.PHONY: verify
-verify: ##H Verify an existing Jolt STARK Proof
-	@echo "Verifying Jolt STARK Proof"
-	$(CARGO) run --release -- verify
-
-.PHONY: demo
-demo: ##H Run native simulation of the ZK-Matrix pipeline
-	@echo "Running ZK-Matrix-Join Demo (Input: $(DEMO_INPUT))"
-	$(CARGO) run --release -- demo --input $(DEMO_INPUT)
+.PHONY: cache
+cache: ##H Update Lean cache
+	$(LAKE) exe cache get
 
 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# 2. Extensions (Compression & WASM)
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+LINT_LOCS_LEAN = $$(git ls-files '**/*.lean')
+LINT_LOCS_PY = $$(git ls-files '*.py')
+LINT_LOCS_SH = $$(git ls-files '*.sh')
 
-.PHONY: compress
-compress: ##H Compress STARK Proof using Groth16 (WIP)
-	@echo "Compressing STARK using SNARK/Recursive strategies..."
-	RUST_LOG=info $(CARGO) run --release -- prove --input $(DEMO_INPUT) --compression groth16
-
-.PHONY: wasm
-wasm: ##H Build the WebAssembly light-client Verifier
-	@echo "Compiling WASM bindings"
-	cd ruma-zk-wasm && wasm-pack build --target web
-
-.PHONY: web-demo
-web-demo: ##H Run local web server to test WASM UI
-	@echo "================================================================"
-	@echo " ZK-Matrix WebAssembly Server is starting!"
-	@echo " http://localhost:8080/demo/index.html"
-	@echo "================================================================"
-	python3 -m http.server 8080
-
-
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# 3. Build & Setup
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.PHONY: build
-build: ##H Build the Rust project
-	@echo "Building ZK-Matrix-Join"
-	$(CARGO) build --release
-
-.PHONY: build-witness
-build-witness: ##H Compile the RISC-V Witness ELFs (Build Check)
-	@echo "Compiling Jolt Witness ELFs..."
-	$(CARGO) build -p ruma_zk_witness --release --target riscv64imac-unknown-none-elf --no-default-features --features guest
-
-.PHONY: setup
-setup: ##H Fetch real Matrix data and Ruma state resolution fixtures
-	@echo "Setting up project data and fixtures"
-	@if [ -n "$$MATRIX_TOKEN" ]; then \
-		echo "Fetching real Matrix state data from $$MATRIX_HOMESERVER"; \
-		$(PYTHON) scripts/fetch_matrix_state.py; \
-	else \
-		echo "Skipping real Matrix fetch (MATRIX_TOKEN not set)."; \
-	fi
-	@echo "Ruma State Res test fixtures are checked in to res/"
-	$(MAKE) setup-jolt
-
-.PHONY: setup-jolt
-setup-jolt: ##H Install Jolt CLI and RISC-V toolchain
-	@echo "Installing Jolt Guest Toolchain"
-	rustup target add riscv64imac-unknown-none-elf
-	@if ! cargo jolt --version >/dev/null 2>&1; then \
-		echo "Installing cargo-jolt from git"; \
-		$(CARGO) install --git https://github.com/a16z/jolt.git jolt; \
-	else \
-		echo "cargo-jolt is already installed."; \
-	fi
-
-.PHONY: install
-install: ##H Install the ruma-zk binary globally via cargo
-	@echo "Installing ruma-zk"
-	$(CARGO) install --path . --force
-
-
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# 4. Testing & Maintenance
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.PHONY: test
-test: ##H Run fast Native Resolution tests (<1s)
-	$(CARGO) test -p ruma-zk -- --nocapture
-	$(CARGO) test -p ruma-lean -- --nocapture
-
-.PHONY: test-full
-test-full: ##H Run the full Jolt Parity Simulation (Slow)
-	@echo "Running Deep Jolt Parity Simulation"
-	RUST_LOG=info RAYON_NUM_THREADS=1 $(CARGO) test --release -p ruma-zk -- --ignored --nocapture
-
-.PHONY: lint
-lint: ##H Run clippy to lint the codebase
-	$(CARGO) check
-	$(CARGO) clippy --all-targets --all-features -- -D warnings
-	@if [ -n "$(VERBOSE)" ]; then \
-		echo "Running ZK Security Scanner (vuln-002-VeilCash)"; \
-		python3 scripts/detect_vuln_002.py; \
-	fi
-
-LINT_LOCS_PY ?= $(shell git ls-files '*.py')
 .PHONY: format
-format: ##H Format the Rust and Python codebase
-	-pre-commit run --all-files
-	-isort $(LINT_LOCS_PY)
-	-black $(LINT_LOCS_PY)
+format: ##H Format codebase
 	-prettier -w .
+	-pre-commit run --all-files
+	-black $(LINT_LOCS_PY)
+	-isort $(LINT_LOCS_PY)
+	-shfmt -w $(LINT_LOCS_SH)
 
 .PHONY: clean
-clean: ##H Clean up cache and temporary files
-	@echo "Cleaning up"
-	find . -name .mypy_cache -exec rm -rf {} +;
-	find . -name .ruff_cache -exec rm -rf {} +;
-	find . -name .pytest_cache -exec rm -rf {} +;
-	rm -rf .tmp/coverage
+clean: ##H Remove build artifacts
+	-$(LAKE) clean
+	-$(CARGO) clean
+	# rm -rf res/ .tmp/ .lake/build/
 
-
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# 5. System & Publishing
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.PHONY: publish
-publish: ##H Preview package file list and dry-run publish
-	@echo "Previewing packaged files"
-	$(CARGO) package --list --allow-dirty
-	@echo "Simulating publish"
-	$(CARGO) publish --dry-run --allow-dirty
-
-.PHONY: cpu-info
-cpu-info: ##H Print hardware info relevant to native targets
-	@echo "=== CPU Model ==="
-	@grep -m1 'model name' /proc/cpuinfo 2>/dev/null || sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "unknown"
-	@echo "=== rustc Native CPU ==="
-	@rustc --print=cfg -C target-cpu=native 2>/dev/null | grep target_feature | sort
-	@echo "=== Jolt VM Toolchain ==="
-	@cargo jolt --version 2>/dev/null || echo "Jolt CLI not found"
 
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# Help & Globals
+# Main target
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-STYLE_CYAN := \033[36m
-STYLE_RESET := \033[0m
+.PHONY: lean
+lean: ##H Run Lean theorem proofs and verification
+	$(LAKE) build
+	@printf "\n$${STYLE_GREEN}--- Verification Complete ---$${STYLE_RESET}\n"
+	@printf "$${STYLE_CYAN}Mapped Theorems & Definitions:$${STYLE_RESET}\n"
+	@grep -E '^(theorem|def|class|instance|structure) ' ctopology/lean_src/ctopology/*.lean ctopology/lean_src/ctopology.lean || true
+	@printf "$${STYLE_GREEN}--------------------------------$${STYLE_RESET}\n"
 
-.PHONY: help
-help: ##H Show this help, list available targets
-	@echo -e "Usage: make [target]\n"
-	@awk 'BEGIN {FS = ":.*?##H "; printf "Available targets:\n"} \
-		/^# ~~~/ { getline; if ($$0 ~ /^# /) printf "\n\033[1;33m%s\033[0m\n", substr($$0, 3); next } \
-		/^[a-zA-Z0-9_\/-]+:.*?##H / { \
-			printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2 \
-		}' $(MAKEFILE_LIST)
+.PHONY: docs
+docs: ##H Generate Lean docs
+	DOCGEN_SRC="file" DOCGEN_SKIP_LEAN=1 DOCGEN_SKIP_STD=1 DOCGEN_SKIP_LAKE=1 DOCGEN_SKIP_DEPS=1 $(LAKE) build ctopology:docs
 
-# Clean quotes from variables
-MATRIX_TOKEN := $(subst ",,$(subst ',,$(MATRIX_TOKEN)))
-MATRIX_HOMESERVER := $(subst ",,$(subst ',,$(MATRIX_HOMESERVER)))
-MATRIX_ROOM_ID := $(subst ",,$(subst ',,$(MATRIX_ROOM_ID)))
+.PHONY: bench
+bench: ##H Run high-performance O(N) benchmark
+	cd ctopology && cargo run --release
 
-export RUST_BACKTRACE ?= 1
-export
+
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Help & support commands
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# [ENUM] Styling / Colors
+STYLE_CYAN := $(shell tput setaf 6 2>/dev/null || echo '\033[36m')
+STYLE_GREEN := $(shell tput setaf 2 2>/dev/null || echo '\033[32m')
+STYLE_RESET := $(shell tput sgr0 2>/dev/null || echo '\033[0m')
+export STYLE_CYAN STYLE_GREEN STYLE_RESET
+
+.PHONY: _help
+_help:
+	@grep -hE '^[a-zA-Z0-9_\/-]+:[[:space:]]*##H .*$$' $(MAKEFILE_LIST) \
+		| awk 'BEGIN {FS = ":[[:space:]]*##H "}; {printf "$(STYLE_CYAN)%-15s$(STYLE_RESET) %s\n", $$1, $$2}'
