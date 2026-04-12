@@ -97,7 +97,9 @@ impl RawProof {
     }
 }
 
+// -------------------------------------------------
 // --- WASM Bindings ---
+// -------------------------------------------------
 
 #[cfg(feature = "wasm")]
 #[wasm_bindgen]
@@ -114,6 +116,34 @@ pub fn verify_matrix_proof(proof_bytes: &[u8]) -> bool {
 pub fn timed_verify(proof_bytes: &[u8]) -> String {
     let start = web_time::Instant::now();
     let success = verify_matrix_proof(proof_bytes);
+    let duration = start.elapsed();
+
+    format!(
+        "Verification Result: {} (Completed in {:?})",
+        if success { "SUCCESS" } else { "FAILURE" },
+        duration
+    )
+}
+
+// -------------------------------------------------
+// --- Mobile (UniFFI) Bindings ---
+// -------------------------------------------------
+
+uniffi::setup_scaffolding!();
+
+#[uniffi::export]
+pub fn verify_matrix_proof_mobile(proof_bytes: Vec<u8>) -> bool {
+    let proof: Result<RawProof, _> = bincode::deserialize(&proof_bytes);
+    match proof {
+        Ok(p) => p.verify_all(),
+        Err(_) => false,
+    }
+}
+
+#[uniffi::export]
+pub fn timed_verify_mobile(proof_bytes: Vec<u8>) -> String {
+    let start = std::time::Instant::now();
+    let success = verify_matrix_proof_mobile(proof_bytes);
     let duration = start.elapsed();
 
     format!(

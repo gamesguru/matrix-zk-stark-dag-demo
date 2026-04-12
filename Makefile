@@ -59,6 +59,11 @@ bench: ##H Run high-performance O(N) benchmark
 wasm: ##H Build WebAssembly package (JS + WASM)
 	cd ruma-zk-verifier && wasm-pack build --target web -- --features wasm
 
+.PHONY: android
+android: ##H Generate Kotlin/Android (UniFFI) bindings
+	cargo build -p ruma-zk-verifier
+	cargo run -p ruma-zk-verifier --bin uniffi-bindgen generate --library target/debug/libruma_zk_verifier.so --language kotlin --out-dir target/bindings/android
+
 .PHONY: proof-bench
 proof-bench: ##H Run topological prover benchmark
 	cargo run -p ruma-zk-topological-air --release

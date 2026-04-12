@@ -3,7 +3,7 @@ name = "ruma-zk-verifier"
 version.workspace = true
 edition = "2021"
 authors.workspace = true
-description = "WebAssembly bindings for \"trustless Matrix join\" verification in the browser."
+description = "Lightweight verifier for matrix servers (crate or bin) and web clients (wasm)."
 readme = "README.md"
 repository.workspace = true
 license.workspace = true
@@ -23,6 +23,7 @@ p3-field.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tiny-keccak.workspace = true
+uniffi = { version = "0.27", features = ["cli"] }
 wasm-bindgen = { version = "0.2", optional = true }
 
 [dev-dependencies]
