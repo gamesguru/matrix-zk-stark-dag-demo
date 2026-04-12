@@ -3,7 +3,7 @@ resolver = "2"
 members = ["ruma-zk-prover", "ruma-zk-topological-air", "ruma-zk-verifier"]
 
 [workspace.package]
-version = "0.1.2"
+version = "0.1.2-patch2"
 authors = ["Shane Jaroch <chown_tee@proton.me>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/gamesguru/ruma-zk"

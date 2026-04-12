@@ -4,6 +4,7 @@ version.workspace = true
 edition = "2021"
 authors.workspace = true
 description = "WebAssembly bindings for \"trustless Matrix join\" verification in the browser."
+readme = "README.md"
 repository.workspace = true
 license.workspace = true
 

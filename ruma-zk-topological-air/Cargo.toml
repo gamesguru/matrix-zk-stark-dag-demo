@@ -4,6 +4,7 @@ version.workspace = true
 authors.workspace = true
 edition = "2021"
 description = "Topological AIR chip."
+readme = "README.md"
 license.workspace = true
 repository.workspace = true
 
