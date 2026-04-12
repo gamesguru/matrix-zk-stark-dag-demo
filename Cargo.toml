@@ -2,6 +2,10 @@
 resolver = "2"
 members = ["ruma-zk-prover", "ruma-zk-topological-air", "ruma-zk-verifier"]
 
+[workspace.metadata.release]
+tag-name = "v{{version}}"
+consolidate-commits = true
+
 [workspace.package]
 version = "0.1.4"
 authors = ["Shane Jaroch <chown_tee@proton.me>"]
