@@ -33,3 +33,6 @@ scripts/res
 proof.bin
 proof.json
 res/*.keys.json
+
+# lean
+.lake
